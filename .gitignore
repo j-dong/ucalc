@@ -1,1 +1,6 @@
+# cargo build folder
 target
+
+# vim files
+*~
+*.swp
