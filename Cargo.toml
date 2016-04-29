@@ -1,0 +1,6 @@
+[package]
+name = "ucalc"
+version = "0.1.0"
+authors = ["James Dong <dong.james.sept14@gmail.com>"]
+
+[dependencies]
