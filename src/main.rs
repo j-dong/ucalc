@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate nom;
 
-use nom::{digit, IResult};
+use nom::{digit, multispace, IResult};
 
 use std::str;
 use std::str::FromStr;
@@ -17,13 +17,17 @@ enum Expression {
     Sub(Box<Expression>, Box<Expression>),
 }
 
-named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), expr, char!(')'))));
+named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
 
 named!(number<f64>, dbg_dmp!(map_res!(map_res!(digit, str::from_utf8), FromStr::from_str)));
 
 named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
 
-named!(exp<Expression>, dbg_dmp!(chain!(lhs: atom ~ rhs: preceded!(char!('^'), exp)?, ||{
+named!(imul<Expression>, dbg_dmp!(chain!(first: atom ~ others: many0!(atom), ||
+    others.into_iter().fold(first, |lhs, rhs| simplify1(Expression::Mul(Box::new(lhs), Box::new(rhs))))
+)));
+
+named!(exp<Expression>, dbg_dmp!(chain!(lhs: imul ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')), preceded!(opt!(multispace), exp))?, ||{
     match (lhs, rhs) {
         (lhs, None) => lhs,
         (Expression::Value(a), Some(Expression::Value(b))) => Expression::Value(a.powf(b)),
@@ -34,7 +38,7 @@ named!(exp<Expression>, dbg_dmp!(chain!(lhs: atom ~ rhs: preceded!(char!('^'), e
 named!(fac<Expression>, dbg_dmp!(
         chain!(first: exp
              ~ others: many0!(tuple!(
-                       alt!(char!('*') | char!('/')), exp)), ||
+                       alt!(preceded!(opt!(multispace), char!('*')) | preceded!(opt!(multispace), char!('/')) | value!('*', multispace)), preceded!(opt!(multispace), exp))), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
             match op {
                 '*' => Expression::Mul(Box::new(lhs), Box::new(rhs)),
@@ -46,7 +50,7 @@ named!(fac<Expression>, dbg_dmp!(
 named!(expr<Expression>, dbg_dmp!(
         chain!(first: fac
              ~ others: many0!(tuple!(
-                       alt!(char!('+') | char!('-')), fac)), ||
+                       preceded!(opt!(multispace), alt!(char!('+') | char!('-'))), preceded!(opt!(multispace), fac))), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
             match op {
                 '+' => Expression::Add(Box::new(lhs), Box::new(rhs)),
@@ -55,7 +59,7 @@ named!(expr<Expression>, dbg_dmp!(
             }))
 )));
 
-named!(input<Expression>, dbg_dmp!(chain!(res: expr ~ char!('?'), ||{res})));
+named!(input<Expression>, dbg_dmp!(chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res})));
 
 fn simplify1(expr: Expression) -> Expression {
     match expr {
@@ -83,6 +87,13 @@ fn test_muldiv() {
     test_expr!("3/2", 1.5);
     test_expr!("3/2*4", 6.0);
     test_expr!("2^2*3", 12.0);
+    test_expr!("2 2 2 ", 8.0);
+}
+
+#[test]
+fn test_implied_mul() {
+    test_expr!("1/2(4)", 0.125);
+    test_expr!("1/2 (4)", 2.0);
 }
 
 #[test]
@@ -91,6 +102,12 @@ fn test_addsub() {
     test_expr!("3-2", 1.0);
     test_expr!("3-2+3", 4.0);
     test_expr!("2^3*4-5", 27.0);
+}
+
+#[test]
+fn test_whitespace() {
+    test_expr!(" (2^39)* 122/2 + 80 -1023 ", 33535104646225.0);
+    test_expr!("(    2     ^   1   )   * 5    / 2 +   3    - 5", 3.0);
 }
 
 fn main() {
