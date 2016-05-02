@@ -15,6 +15,7 @@ enum Expression {
     Div(Box<Expression>, Box<Expression>),
     Add(Box<Expression>, Box<Expression>),
     Sub(Box<Expression>, Box<Expression>),
+    Neg(Box<Expression>),
 }
 
 named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
@@ -27,7 +28,15 @@ named!(imul<Expression>, dbg_dmp!(chain!(first: atom ~ others: many0!(atom), ||
     others.into_iter().fold(first, |lhs, rhs| simplify1(Expression::Mul(Box::new(lhs), Box::new(rhs))))
 )));
 
-named!(exp<Expression>, dbg_dmp!(chain!(lhs: imul ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')), preceded!(opt!(multispace), exp))?, ||{
+named!(unary<Expression>, dbg_dmp!(alt!(exp | chain!(op: chain!(o: alt!(char!('+') | char!('-')) ~ multispace?, || o) ~ val: unary, ||{
+    match op {
+        '+' => val,
+        '-' => simplify1(Expression::Neg(Box::new(val))),
+        _ => val,
+    }
+}))));
+
+named!(exp<Expression>, dbg_dmp!(chain!(lhs: imul ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')), preceded!(opt!(multispace), unary))?, ||{
     match (lhs, rhs) {
         (lhs, None) => lhs,
         (Expression::Value(a), Some(Expression::Value(b))) => Expression::Value(a.powf(b)),
@@ -68,6 +77,7 @@ fn simplify1(expr: Expression) -> Expression {
         Expression::Div(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a / b),
         Expression::Add(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a + b),
         Expression::Sub(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a - b),
+        Expression::Neg(box Expression::Value(a)) => Expression::Value(-a),
         expr => expr
     }
 }
