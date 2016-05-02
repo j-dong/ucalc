@@ -45,9 +45,9 @@ named!(exp<Expression>, dbg_dmp!(chain!(lhs: imul ~ rhs: preceded!(preceded!(opt
 })));
 
 named!(fac<Expression>, dbg_dmp!(
-        chain!(first: exp
+        chain!(first: unary
              ~ others: many0!(tuple!(
-                       alt!(preceded!(opt!(multispace), char!('*')) | preceded!(opt!(multispace), char!('/')) | value!('*', multispace)), preceded!(opt!(multispace), exp))), ||
+                       alt!(preceded!(opt!(multispace), char!('*')) | preceded!(opt!(multispace), char!('/')) | value!('*', preceded!(multispace, peek!(none_of!("+-"))))), preceded!(opt!(multispace), unary))), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
             match op {
                 '*' => Expression::Mul(Box::new(lhs), Box::new(rhs)),
@@ -129,6 +129,13 @@ fn test_huge() {
 #[test]
 fn test_unary() {
     test_expr!("1+-1(2)", -1.0);
+    test_expr!("1/2-2", -1.5);
+    test_expr!("1+1", 2.0);
+    test_expr!("1 + 1", 2.0);
+    test_expr!("1+1/-(3-2)", 0.0);
+    test_expr!("-2^2", -4.0);
+    test_expr!("2^-2", 0.25);
+    test_expr!("-2(5)", -10.0);
 }
 
 fn main() {
