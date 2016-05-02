@@ -44,10 +44,15 @@ named!(exp<Expression>, dbg_dmp!(chain!(lhs: imul ~ rhs: preceded!(preceded!(opt
     }
 })));
 
+named!(facterm<(char, Expression)>,
+        tuple!(alt!(
+                preceded!(opt!(multispace), char!('*'))
+              | preceded!(opt!(multispace), char!('/'))
+              | value!('*', preceded!(multispace, error!(nom::ErrorKind::NoneOf, peek!(none_of!("+-")))))), preceded!(opt!(multispace), unary)));
+
 named!(fac<Expression>, dbg_dmp!(
         chain!(first: unary
-             ~ others: many0!(tuple!(
-                       alt!(preceded!(opt!(multispace), char!('*')) | preceded!(opt!(multispace), char!('/')) | value!('*', preceded!(multispace, peek!(none_of!("+-"))))), preceded!(opt!(multispace), unary))), ||
+             ~ others: many0!(facterm), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
             match op {
                 '*' => Expression::Mul(Box::new(lhs), Box::new(rhs)),
