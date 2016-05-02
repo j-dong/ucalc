@@ -83,6 +83,7 @@ fn simplify1(expr: Expression) -> Expression {
         Expression::Add(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a + b),
         Expression::Sub(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a - b),
         Expression::Neg(box Expression::Value(a)) => Expression::Value(-a),
+        Expression::Neg(box Expression::Neg(box a)) => a,
         expr => expr
     }
 }
