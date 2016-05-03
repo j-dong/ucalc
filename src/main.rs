@@ -138,6 +138,12 @@ fn test_unary() {
     test_expr!("-2(5)", -10.0);
 }
 
+#[test]
+fn test_thomas() {
+    test_expr!("1+1", 2.0);
+    test_expr!("2^(3*2-4)-4", 0.0);
+}
+
 fn main() {
     println!("A: {:?}", input(b"1?"));
     println!("A: {:?}", input(b"1*1?"));
