@@ -17,15 +17,31 @@ enum Expression {
     Neg(Box<Expression>),
 }
 
-named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
+named!(parens<Expression>, dbg_dmp!(
+        delimited!(char!('(')
+      , preceded!(opt!(multispace), expr)
+      , preceded!(opt!(multispace), char!(')')))));
 
 named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
-named!(number<f64>, dbg_dmp!(map_res!(map!(map_res!(recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())), str::from_utf8), |a: &str| a.replace('_', "")), |a: String| a.parse())));
+named!(number<f64>, dbg_dmp!(map_res!(map!(map_res!(recognize!(chain!(
+                    decimal
+                  ~ preceded!(char!('.'), opt!(decimal))?
+                  ~ preceded!(one_of!("eE"),
+                        preceded!(opt!(one_of!("+-")), decimal))?
+                  , || ()))
+        , str::from_utf8)
+        , |a: &str| a.replace('_', ""))
+        , |a: String| a.parse())));
 
-named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
+named!(atom<Expression>, dbg_dmp!(
+       alt!(number => {Expression::Value}
+     | parens)));
 
-named!(imul<Expression>, dbg_dmp!(chain!(first: atom ~ others: many0!(atom), ||
-    others.into_iter().fold(first, |lhs, rhs| simplify1(Expression::Mul(Box::new(lhs), Box::new(rhs))))
+named!(imul<Expression>, dbg_dmp!(chain!(
+       first: atom
+     ~ others: many0!(atom), ||
+    others.into_iter().fold(first,
+        |lhs, rhs| simplify1(Expression::Mul(Box::new(lhs), Box::new(rhs))))
 )));
 
 named!(unary<Expression>, dbg_dmp!(alt!(exp | chain!(op: chain!(o: alt!(char!('+') | char!('-')) ~ multispace?, || o) ~ val: unary, ||{
@@ -36,19 +52,26 @@ named!(unary<Expression>, dbg_dmp!(alt!(exp | chain!(op: chain!(o: alt!(char!('+
     }
 }))));
 
-named!(exp<Expression>, dbg_dmp!(chain!(lhs: imul ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')), preceded!(opt!(multispace), unary))?, ||{
+named!(exp<Expression>, dbg_dmp!(chain!(
+       lhs: imul
+     ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')),
+                      preceded!(opt!(multispace), unary))?, ||
     match (lhs, rhs) {
         (lhs, None) => lhs,
         (Expression::Value(a), Some(Expression::Value(b))) => Expression::Value(a.powf(b)),
         (lhs, Some(b)) => Expression::Exp(Box::new(lhs), Box::new(b)),
     }
-})));
+)));
 
 named!(facterm<(char, Expression)>,
         tuple!(alt!(
-                preceded!(opt!(multispace), char!('*'))
-              | preceded!(opt!(multispace), char!('/'))
-              | value!('*', preceded!(multispace, error!(nom::ErrorKind::NoneOf, peek!(none_of!("+-")))))), preceded!(opt!(multispace), unary)));
+               preceded!(opt!(multispace), char!('*'))
+             | preceded!(opt!(multispace), char!('/'))
+             | value!('*',
+                      preceded!(multispace,
+                                error!(nom::ErrorKind::NoneOf,
+                                       peek!(none_of!("+-")))))),
+               preceded!(opt!(multispace), unary)));
 
 named!(fac<Expression>, dbg_dmp!(
         chain!(first: unary
@@ -64,7 +87,9 @@ named!(fac<Expression>, dbg_dmp!(
 named!(expr<Expression>, dbg_dmp!(
         chain!(first: fac
              ~ others: many0!(tuple!(
-                       preceded!(opt!(multispace), alt!(char!('+') | char!('-'))), preceded!(opt!(multispace), fac))), ||
+                       preceded!(opt!(multispace),
+                           alt!(char!('+') | char!('-'))),
+                           preceded!(opt!(multispace), fac))), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
             match op {
                 '+' => Expression::Add(Box::new(lhs), Box::new(rhs)),
