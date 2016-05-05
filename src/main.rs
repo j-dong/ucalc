@@ -20,7 +20,7 @@ enum Expression {
 
 named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
 
-named!(number<f64>, dbg_dmp!(map_res!(map_res!(digit, str::from_utf8), FromStr::from_str)));
+named!(number<f64>, dbg_dmp!(map_res!(map_res!(recognize!(chain!(digit ~ preceded!(char!('.'), opt!(digit))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), digit))?, || ())), str::from_utf8), FromStr::from_str)));
 
 named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
 
@@ -142,6 +142,21 @@ fn test_unary() {
 fn test_thomas() {
     test_expr!("1+1", 2.0);
     test_expr!("2^(3*2-4)-4", 0.0);
+}
+
+#[test]
+fn test_floating() {
+    test_expr!("5", 5.0);
+    test_expr!("2.3e2", 230.0);
+    test_expr!("5e-2", 0.05);
+    // these will fail right now
+    // test_expr!("8_230_999", 8_230_999.0);
+    // test_expr!(".2", 0.2);
+    // Rust reference examples
+    test_expr!("123.0", 123.0f64);
+    test_expr!("0.1", 0.1f64);
+    test_expr!("12E+99", 12E+99_f64);
+    test_expr!("2.", 2.);
 }
 
 fn main() {
