@@ -2,10 +2,9 @@
 #[macro_use]
 extern crate nom;
 
-use nom::{digit, multispace, IResult};
+use nom::{multispace, IResult};
 
 use std::str;
-use std::str::FromStr;
 
 #[derive(Debug, PartialEq)]
 enum Expression {
@@ -20,7 +19,8 @@ enum Expression {
 
 named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
 
-named!(number<f64>, dbg_dmp!(map_res!(map_res!(digit, str::from_utf8), FromStr::from_str)));
+named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
+named!(number<f64>, dbg_dmp!(map_res!(map!(map_res!(recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())), str::from_utf8), |a: &str| a.replace('_', "")), |a: String| a.parse())));
 
 named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
 
@@ -91,6 +91,9 @@ fn simplify1(expr: Expression) -> Expression {
 macro_rules! test_expr {
     ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], Expression::Value($v))));
 }
+macro_rules! fail_expr {
+    ( $x: expr ) => (match input(concat!($x, "?").as_bytes()) { IResult::Done(_, _) => panic!("should have failed"), _ => () })
+}
 
 #[test]
 fn test_exponents() {
@@ -142,6 +145,28 @@ fn test_unary() {
     test_expr!("-2^2", -4.0);
     test_expr!("2^-2", 0.25);
     test_expr!("-2(5)", -10.0);
+}
+
+#[test]
+fn test_thomas() {
+    test_expr!("1+1", 2.0);
+    test_expr!("2^(3*2-4)-4", 0.0);
+}
+
+#[test]
+fn test_floating() {
+    test_expr!("5", 5.0);
+    test_expr!("2.3e2", 230.0);
+    test_expr!("5e-2", 0.05);
+    test_expr!("8_230_999", 8_230_999.0);
+    fail_expr!("_");
+    // these will fail right now
+    // test_expr!(".2", 0.2);
+    // Rust reference examples
+    test_expr!("123.0", 123.0f64);
+    test_expr!("0.1", 0.1f64);
+    test_expr!("12E+99", 12E+99_f64);
+    test_expr!("2.", 2.);
 }
 
 fn main() {
