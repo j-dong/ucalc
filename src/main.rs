@@ -20,7 +20,9 @@ enum Expression {
 named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
 
 named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
-named!(number<f64>, dbg_dmp!(map_res!(map!(map_res!(recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())), str::from_utf8), |a: &str| a.replace('_', "")), |a: String| a.parse())));
+named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())) => { |res: &[u8]| Ok(try!(str::from_utf8(res)).to_owned()) }
+                                              | recognize!(chain!(char!('.') ~ decimal ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())) => { |res: &[u8]| {let s = try!(str::from_utf8(res)).to_owned(); s.insert(0, '0'); Ok(s)} }),
+                                              |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', ""))), |a: String| a.parse())));
 
 named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
 
@@ -160,8 +162,7 @@ fn test_floating() {
     test_expr!("5e-2", 0.05);
     test_expr!("8_230_999", 8_230_999.0);
     fail_expr!("_");
-    // these will fail right now
-    // test_expr!(".2", 0.2);
+    test_expr!(".2", 0.2);
     // Rust reference examples
     test_expr!("123.0", 123.0f64);
     test_expr!("0.1", 0.1f64);
