@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate nom;
 
-use nom::{multispace, IResult};
+use nom::{multispace, alpha, IResult};
 
 use std::str;
 
@@ -39,7 +39,18 @@ named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize_number1 => {string
                                                   | recognize_number2 => {prepend_zero}),
                                               |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', "")) as Result<String, str::Utf8Error>), |a: String| a.parse())));
 
-named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
+fn get_numerical_constant(res: &[u8]) -> Option<f64> {
+    match &res {
+        &b"e" => Some(std::f64::consts::E),
+        &b"pi" => Some(std::f64::consts::PI),
+        _ => None
+    }
+}
+
+#[inline]
+named!(num_const<f64>, map_opt!(alpha, get_numerical_constant));
+
+named!(atom<Expression>, dbg_dmp!(alt!(parens | alt!(number | num_const) => {Expression::Value})));
 
 named!(imul<Expression>, dbg_dmp!(chain!(first: atom ~ others: many0!(atom), ||
     others.into_iter().fold(first, |lhs, rhs| simplify1(Expression::Mul(Box::new(lhs), Box::new(rhs))))
@@ -183,6 +194,12 @@ fn test_floating() {
     test_expr!("0.1", 0.1f64);
     test_expr!("12E+99", 12E+99_f64);
     test_expr!("2.", 2.);
+}
+
+#[test]
+fn test_num_const() {
+    test_expr!("pi", std::f64::consts::PI);
+    test_expr!("e", std::f64::consts::E);
 }
 
 fn main() {
