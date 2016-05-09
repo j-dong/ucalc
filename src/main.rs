@@ -20,9 +20,24 @@ enum Expression {
 named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
 
 named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
-named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())) => { |res: &[u8]| Ok(try!(str::from_utf8(res)).to_owned()) }
-                                              | recognize!(chain!(char!('.') ~ decimal ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())) => { |res: &[u8]| {let s = try!(str::from_utf8(res)).to_owned(); s.insert(0, '0'); Ok(s)} }),
-                                              |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', ""))), |a: String| a.parse())));
+#[inline]
+named!(recognize_number1<&[u8]>, recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())));
+#[inline]
+named!(recognize_number2<&[u8]>, recognize!(chain!(char!('.') ~ decimal ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())));
+#[inline]
+fn stringify_u8(res: &[u8]) -> Result<String, str::Utf8Error> {
+    Ok(try!(str::from_utf8(res)).to_owned())
+}
+#[inline]
+fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
+    let mut s = try!(str::from_utf8(res)).to_owned();
+    s.insert(0, '0');
+    Ok(s)
+}
+
+named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize_number1 => {stringify_u8}
+                                                  | recognize_number2 => {prepend_zero}),
+                                              |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', "")) as Result<String, str::Utf8Error>), |a: String| a.parse())));
 
 named!(atom<Expression>, dbg_dmp!(alt!(number => {Expression::Value} | parens)));
 
