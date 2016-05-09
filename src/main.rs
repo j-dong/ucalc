@@ -17,6 +17,21 @@ enum Expression {
     Neg(Box<Expression>),
 }
 
+fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
+    match res {
+        "sin" => Some(Box::new(f64::sin)),
+        "cos" => Some(Box::new(f64::cos)),
+        "tan" => Some(Box::new(f64::tan)),
+        _ => None
+    }
+}
+
+fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
+    if let Some(f) = get_unary_function(res) {
+        return Some(Box::new(|a: Vec<f64>| f(a[0])))
+    }
+}
+
 named!(parens<Expression>, dbg_dmp!(delimited!(char!('('), preceded!(opt!(multispace), expr), preceded!(opt!(multispace), char!(')')))));
 
 named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
