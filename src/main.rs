@@ -19,28 +19,42 @@ enum Expression {
 
 fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
     match res {
-        "sin" => Some(Box::new(f64::sin)),
-        "cos" => Some(Box::new(f64::cos)),
-        "tan" => Some(Box::new(f64::tan)),
+        b"sin" => Some(Box::new(f64::sin)),
+        b"cos" => Some(Box::new(f64::cos)),
+        b"tan" => Some(Box::new(f64::tan)),
         _ => None
     }
 }
 
 fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
     if let Some(f) = get_unary_function(res) {
-        return Some(Box::new(|a: Vec<f64>| f(a[0])))
+        return Some(Box::new(move |a: Vec<f64>| f(a[0])))
+    }
+    match res {
+        b"atan2" => Some(Box::new(|a: Vec<f64>| a[0].atan2(a[1]))),
+        _ => None
     }
 }
 
-named!(parens<Expression>, dbg_dmp!(
+named!(parens<Expression>,
         delimited!(char!('(')
       , preceded!(opt!(multispace), expr)
-      , preceded!(opt!(multispace), char!(')')))));
+      , preceded!(opt!(multispace), char!(')'))));
 
 #[inline]
-named!(recognize_number1<&[u8]>, recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())));
+named!(recognize_number1<&[u8]>, recognize!(
+        chain!(decimal
+             ~ preceded!(char!('.'), opt!(decimal))?
+             ~ preceded!(one_of!("eE"),
+                   preceded!(opt!(one_of!("+-")), decimal))?,
+             || ())));
 #[inline]
-named!(recognize_number2<&[u8]>, recognize!(chain!(char!('.') ~ decimal ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())));
+named!(recognize_number2<&[u8]>, recognize!(
+        chain!(char!('.')
+             ~ decimal
+             ~ preceded!(one_of!("eE"),
+                   preceded!(opt!(one_of!("+-")), decimal))?,
+             || ())));
 #[inline]
 fn stringify_u8(res: &[u8]) -> Result<String, str::Utf8Error> {
     Ok(try!(str::from_utf8(res)).to_owned())
@@ -52,9 +66,16 @@ fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
     Ok(s)
 }
 
-named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize_number1 => {stringify_u8}
-                                                  | recognize_number2 => {prepend_zero}),
-                                              |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', "")) as Result<String, str::Utf8Error>), |a: String| a.parse())));
+#[inline]
+named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
+
+named!(number<f64>, map_res!(map_res!(
+            alt!(recognize_number1 => {stringify_u8}
+               | recognize_number2 => {prepend_zero}),
+            |a: Result<String, str::Utf8Error>|
+                Ok(try!(a).replace('_', ""))
+                as Result<String, str::Utf8Error>),
+            |a: String| a.parse()));
 
 fn get_numerical_constant(res: &[u8]) -> Option<f64> {
     match &res {
@@ -67,33 +88,42 @@ fn get_numerical_constant(res: &[u8]) -> Option<f64> {
 #[inline]
 named!(num_const<f64>, map_opt!(alpha, get_numerical_constant));
 
-named!(atom<Expression>, dbg_dmp!(alt!(parens | alt!(number | num_const) => {Expression::Value})));
+named!(atom<Expression>, alt!(parens
+                            | alt!(number | num_const)
+                                => {Expression::Value}));
 
-named!(imul<Expression>, dbg_dmp!(chain!(
+named!(imul<Expression>, chain!(
        first: atom
      ~ others: many0!(atom), ||
     others.into_iter().fold(first,
-        |lhs, rhs| simplify1(Expression::Mul(Box::new(lhs), Box::new(rhs))))
-)));
+        |lhs, rhs| simplify1(
+                     Expression::Mul(Box::new(lhs), Box::new(rhs))))
+));
 
-named!(unary<Expression>, dbg_dmp!(alt!(exp | chain!(op: chain!(o: alt!(char!('+') | char!('-')) ~ multispace?, || o) ~ val: unary, ||{
+named!(unary<Expression>, alt!(exp
+                             | chain!(op: chain!(
+                                     o: alt!(char!('+') | char!('-'))
+                                   ~ multispace?, || o)
+                             ~ val: unary, ||{
     match op {
         '+' => val,
         '-' => simplify1(Expression::Neg(Box::new(val))),
         _ => val,
     }
-}))));
+})));
 
-named!(exp<Expression>, dbg_dmp!(chain!(
+named!(exp<Expression>, chain!(
        lhs: imul
      ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')),
                       preceded!(opt!(multispace), unary))?, ||
     match (lhs, rhs) {
         (lhs, None) => lhs,
-        (Expression::Value(a), Some(Expression::Value(b))) => Expression::Value(a.powf(b)),
-        (lhs, Some(b)) => Expression::Exp(Box::new(lhs), Box::new(b)),
+        (Expression::Value(a), Some(Expression::Value(b)))
+            => Expression::Value(a.powf(b)),
+        (lhs, Some(b))
+            => Expression::Exp(Box::new(lhs), Box::new(b)),
     }
-)));
+));
 
 named!(facterm<(char, Expression)>,
         tuple!(alt!(
@@ -105,7 +135,7 @@ named!(facterm<(char, Expression)>,
                                        peek!(none_of!("+-")))))),
                preceded!(opt!(multispace), unary)));
 
-named!(fac<Expression>, dbg_dmp!(
+named!(fac<Expression>,
         chain!(first: unary
              ~ others: many0!(facterm), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
@@ -114,9 +144,9 @@ named!(fac<Expression>, dbg_dmp!(
                 '/' => Expression::Div(Box::new(lhs), Box::new(rhs)),
                 _   => Expression::Mul(Box::new(lhs), Box::new(rhs))
             }))
-)));
+));
 
-named!(expr<Expression>, dbg_dmp!(
+named!(expr<Expression>,
         chain!(first: fac
              ~ others: many0!(tuple!(
                        preceded!(opt!(multispace),
@@ -128,19 +158,21 @@ named!(expr<Expression>, dbg_dmp!(
                 '-' => Expression::Sub(Box::new(lhs), Box::new(rhs)),
                 _   => Expression::Add(Box::new(lhs), Box::new(rhs))
             }))
-)));
+));
 
-named!(input<Expression>, dbg_dmp!(chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res})));
+named!(input<Expression>, chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res}));
 
 fn simplify1(expr: Expression) -> Expression {
+    use Expression as E;
+    use Expression::Value as V;
     match expr {
-        Expression::Exp(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a.powf(b)),
-        Expression::Mul(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a * b),
-        Expression::Div(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a / b),
-        Expression::Add(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a + b),
-        Expression::Sub(box Expression::Value(a), box Expression::Value(b)) => Expression::Value(a - b),
-        Expression::Neg(box Expression::Value(a)) => Expression::Value(-a),
-        Expression::Neg(box Expression::Neg(box a)) => a,
+        E::Exp(box V(a), box V(b)) => V(a.powf(b)),
+        E::Mul(box V(a), box V(b)) => V(a * b),
+        E::Div(box V(a), box V(b)) => V(a / b),
+        E::Add(box V(a), box V(b)) => V(a + b),
+        E::Sub(box V(a), box V(b)) => V(a - b),
+        E::Neg(box V(a)) => V(-a),
+        E::Neg(box E::Neg(box a)) => a,
         expr => expr
     }
 }
