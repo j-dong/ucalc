@@ -1,3 +1,13 @@
+use std::ops::Neg;
+
+/// Rational numbers. The following are invariants:
+///
+/// * Both numerator and denominator are between `i32::min_value() + 1`
+///   and `i32::max_value()`, inclusive. (This is so that negation and
+///   casting between `i32` and `u32` are always valid.) Any operation
+///   that would cause this to be false would return `Err(OverflowError)`.
+/// * The denominator is always positive. An operation that would
+///   cause the denominator to be zero would return `Err(OverflowError)`.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq)]
 pub struct Rational {
     num: i32,
@@ -110,6 +120,16 @@ impl<T, U> CheckableOverflow<U> for Result<T, OverflowError> where T: CheckableO
     }
 }
 
+impl Neg for Rational {
+    type Output = Neg;
+    fn neg(self) -> Rational {
+        Rational {
+            num: -self.num,
+            den: self.den,
+        }
+    }
+}
+
 impl Rational {
     #[inline]
     pub fn from_integer(i: i32) -> Result<Rational, OverflowError> {
@@ -136,17 +156,25 @@ impl Rational {
                 den: self.num as u32,
             })
         } else {
-            Ok(Rational {
-                num: -(self.den as i32),
-                den: (-self.num) as u32,
-            })
+            if self.num != 0 {
+                Ok(Rational {
+                    num: -(self.den as i32),
+                    den: (-self.num) as u32,
+                })
+            } else {
+                Err(OverflowError)
+            }
         }
     }
+    #[inline]
     pub fn is_integer(&self) -> bool {
         self.den == 1
     }
+    pub fn is_negative(&self) -> bool {
+        self.num < 0
+    }
     #[inline]
-    fn pow_r(&self, exp: i32) -> Result<Rational, OverflowError> {
+    pub fn pow(&self, exp: i32) -> Result<Rational, OverflowError> {
         if exp != 0 {
             if exp > 0 {
                 Rational {
@@ -166,6 +194,73 @@ impl Rational {
             }
         } else {
             Ok(Rational { num: 1, den: 1 })
+        }
+    }
+    pub fn mul(&self, other: &Rational) -> Result<Rational, OverflowError> {
+        match (self.num.checked_mul(other.num), self.den.checked_mul(other.den)) {
+            (Some(np), Some(dp)) => {
+                let gcd = try!(gcd(np, dp)); // guaranteed positive
+                Rational {
+                    num: np / gcd,
+                    den: dp / gcd as u32,
+                }.check_overflow()
+            },
+            _ => {
+                // (a / b) * (c / d) =
+                // (a * b) / (c * d) =
+                // (a / @1 * b / @2) / (c / @2 * d / @1)
+                // We find n1d2 and n2d1 which are the largest
+                // factors of a, d and b, c to avoid overflow as much
+                // as possible.
+                let n1d2 = try!(gcd(self.num, other.den));
+                let n2d1 = try!(gcd(self.den, other.num));
+                Rational {
+                    num: try!((self.num / n1d1).checked_mul(other.num / n2d1).ok_or(OverflowError)),
+                    den: try!((self.den / n2d1).checked_mul(other.den / n1d2).ok_or(OverflowError)),
+                }.check_overflow()
+            },
+        }
+    }
+    #[inline]
+    pub fn div(&self, other: &Rational) -> Result<Rational, OverflowError> {
+        self.mul(try!(other.recip()))
+    }
+    pub fn add(&self, other: &Rational) -> Result<Rational, OverflowError> {
+        let dgcd = try!(gcd(self.den as i32, other.den as i32)) as u32;
+        let a = self.den / dgcd;
+        let b = other.den / dgcd;
+        let denom = try!(self.den.checked_mul(b).ok_or(OverflowError));
+        // denom / self.den = b
+        // denom / other.den = a
+        Rational {
+            num: self.num * b as i32 + other.num * a as i32,
+            den: denom,
+        }.check_overflow()
+    }
+    #[inline]
+    pub fn sub(&self, other: &Rational) -> Result<Rational, OverflowError> {
+        self.add(-other)
+    }
+}
+
+impl Ord for Rational {
+    fn cmp(&self, other: &Rational) -> cmp::Ordering {
+        if self.is_negative() != other.is_negative() {
+            return self.num.cmp(other.num)
+        }
+        if self.is_negative() {
+            return (-self).cmp(-other).reverse()
+        }
+        match (self.num.checked_mul(other.den), self.den.checked_mul(other.num)) {
+            (Some(a), Some(b)) => a.cmp(b),
+            _ => {
+                // integer overflow with direct comparison
+                if self.num == other.num {
+                    return other.den.cmp(self.den)
+                }
+                // TODO: implement rest
+                unimplemented!();
+            }
         }
     }
 }
