@@ -6,8 +6,6 @@ use nom::{multispace, alpha, IResult};
 
 use std::str;
 
-mod rational;
-
 #[derive(Debug, PartialEq)]
 enum Expression {
     Value(f64),
@@ -18,7 +16,7 @@ enum Expression {
     Sub(Box<Expression>, Box<Expression>),
     Neg(Box<Expression>),
 }
-/*
+
 fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
     match res {
         "sin" => Some(Box::new(f64::sin)),
@@ -33,7 +31,7 @@ fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
         return Some(Box::new(|a: Vec<f64>| f(a[0])))
     }
 }
-*/
+
 named!(parens<Expression>, dbg_dmp!(
         delimited!(char!('(')
       , preceded!(opt!(multispace), expr)
@@ -53,7 +51,7 @@ fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
     s.insert(0, '0');
     Ok(s)
 }
-named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
+
 named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize_number1 => {stringify_u8}
                                                   | recognize_number2 => {prepend_zero}),
                                               |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', "")) as Result<String, str::Utf8Error>), |a: String| a.parse())));
