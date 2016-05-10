@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate nom;
 
-use nom::{multispace, IResult};
+use nom::{multispace, alpha, IResult};
 
 use std::str;
 
@@ -17,25 +17,57 @@ enum Expression {
     Neg(Box<Expression>),
 }
 
+fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
+    match res {
+        "sin" => Some(Box::new(f64::sin)),
+        "cos" => Some(Box::new(f64::cos)),
+        "tan" => Some(Box::new(f64::tan)),
+        _ => None
+    }
+}
+
+fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
+    if let Some(f) = get_unary_function(res) {
+        return Some(Box::new(|a: Vec<f64>| f(a[0])))
+    }
+}
+
 named!(parens<Expression>, dbg_dmp!(
         delimited!(char!('(')
       , preceded!(opt!(multispace), expr)
       , preceded!(opt!(multispace), char!(')')))));
 
-named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
-named!(number<f64>, dbg_dmp!(map_res!(map!(map_res!(recognize!(chain!(
-                    decimal
-                  ~ preceded!(char!('.'), opt!(decimal))?
-                  ~ preceded!(one_of!("eE"),
-                        preceded!(opt!(one_of!("+-")), decimal))?
-                  , || ()))
-        , str::from_utf8)
-        , |a: &str| a.replace('_', ""))
-        , |a: String| a.parse())));
+#[inline]
+named!(recognize_number1<&[u8]>, recognize!(chain!(decimal ~ preceded!(char!('.'), opt!(decimal))? ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())));
+#[inline]
+named!(recognize_number2<&[u8]>, recognize!(chain!(char!('.') ~ decimal ~ preceded!(one_of!("eE"), preceded!(opt!(one_of!("+-")), decimal))?, || ())));
+#[inline]
+fn stringify_u8(res: &[u8]) -> Result<String, str::Utf8Error> {
+    Ok(try!(str::from_utf8(res)).to_owned())
+}
+#[inline]
+fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
+    let mut s = try!(str::from_utf8(res)).to_owned();
+    s.insert(0, '0');
+    Ok(s)
+}
 
-named!(atom<Expression>, dbg_dmp!(
-       alt!(number => {Expression::Value}
-     | parens)));
+named!(number<f64>, dbg_dmp!(map_res!(map_res!(alt!(recognize_number1 => {stringify_u8}
+                                                  | recognize_number2 => {prepend_zero}),
+                                              |a: Result<String, str::Utf8Error>| Ok(try!(a).replace('_', "")) as Result<String, str::Utf8Error>), |a: String| a.parse())));
+
+fn get_numerical_constant(res: &[u8]) -> Option<f64> {
+    match &res {
+        &b"e" => Some(std::f64::consts::E),
+        &b"pi" => Some(std::f64::consts::PI),
+        _ => None
+    }
+}
+
+#[inline]
+named!(num_const<f64>, map_opt!(alpha, get_numerical_constant));
+
+named!(atom<Expression>, dbg_dmp!(alt!(parens | alt!(number | num_const) => {Expression::Value})));
 
 named!(imul<Expression>, dbg_dmp!(chain!(
        first: atom
@@ -185,13 +217,18 @@ fn test_floating() {
     test_expr!("5e-2", 0.05);
     test_expr!("8_230_999", 8_230_999.0);
     fail_expr!("_");
-    // these will fail right now
-    // test_expr!(".2", 0.2);
+    test_expr!(".2", 0.2);
     // Rust reference examples
     test_expr!("123.0", 123.0f64);
     test_expr!("0.1", 0.1f64);
     test_expr!("12E+99", 12E+99_f64);
     test_expr!("2.", 2.);
+}
+
+#[test]
+fn test_num_const() {
+    test_expr!("pi", std::f64::consts::PI);
+    test_expr!("e", std::f64::consts::E);
 }
 
 fn main() {
