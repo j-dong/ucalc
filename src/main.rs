@@ -6,6 +6,8 @@ use nom::{multispace, alpha, IResult};
 
 use std::str;
 
+mod rational;
+
 #[derive(Debug, PartialEq)]
 enum Expression {
     Value(f64),
