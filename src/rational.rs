@@ -357,6 +357,6 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_zero_denom() {
-        Rational::new(i32::min_value(), 0);
+        Rational::new(i32::min_value(), 0).unwrap();
     }
 }

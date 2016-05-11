@@ -2,13 +2,13 @@
 #[macro_use]
 extern crate nom;
 
-use nom::{multispace, alpha, IResult};
+use nom::{multispace, alpha, alphanumeric, IResult};
 
 use std::str;
+use std::fmt;
 
 mod rational;
 
-#[derive(Debug, PartialEq)]
 enum Expression {
     Value(f64),
     Exp(Box<Expression>, Box<Expression>),
@@ -17,6 +17,54 @@ enum Expression {
     Add(Box<Expression>, Box<Expression>),
     Sub(Box<Expression>, Box<Expression>),
     Neg(Box<Expression>),
+    Call(Box<Fn(Vec<f64>) -> f64>, Vec<Expression>),
+}
+
+impl PartialEq for Expression {
+    fn eq(&self, other: &Expression) -> bool {
+        match (self, other) {
+            (&Expression::Value(ref a), &Expression::Value(ref b)) => a == b,
+            (&Expression::Exp(ref a, ref b), &Expression::Exp(ref c, ref d)) => a == c && b == d,
+            (&Expression::Mul(ref a, ref b), &Expression::Mul(ref c, ref d)) => a == c && b == d,
+            (&Expression::Div(ref a, ref b), &Expression::Div(ref c, ref d)) => a == c && b == d,
+            (&Expression::Add(ref a, ref b), &Expression::Add(ref c, ref d)) => a == c && b == d,
+            (&Expression::Sub(ref a, ref b), &Expression::Sub(ref c, ref d)) => a == c && b == d,
+            (&Expression::Neg(ref a), &Expression::Neg(ref b)) => a == b,
+            _ => false
+        }
+    }
+}
+
+impl fmt::Debug for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &Expression::Value(ref a) => write!(f, "Expression::Value({:?})", a),
+            &Expression::Exp(ref a, ref b) => write!(f, "Expression::Exp({:?}, {:?})", a, b),
+            &Expression::Mul(ref a, ref b) => write!(f, "Expression::Mul({:?}, {:?})", a, b),
+            &Expression::Div(ref a, ref b) => write!(f, "Expression::Div({:?}, {:?})", a, b),
+            &Expression::Add(ref a, ref b) => write!(f, "Expression::Add({:?}, {:?})", a, b),
+            &Expression::Sub(ref a, ref b) => write!(f, "Expression::Sub({:?}, {:?})", a, b),
+            &Expression::Neg(ref a) => write!(f, "Expression::Neg({:?})", a),
+            &Expression::Call(_, ref a) => write!(f, "Expression::Call(fn, {:?})", a),
+        }
+    }
+}
+
+impl Expression {
+    #[inline]
+    fn is_known(&self) -> bool {
+        match self {
+            &Expression::Value(_) => true,
+            _ => false
+        }
+    }
+    #[inline]
+    fn extract_value(&self) -> f64 {
+        match self {
+            &Expression::Value(a) => a,
+            _ => panic!("extract value of unknown")
+        }
+    }
 }
 
 fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
@@ -38,10 +86,15 @@ fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
     }
 }
 
-named!(parens<Expression>,
+named!(parens<Expression>, alt!(
         delimited!(char!('(')
       , preceded!(opt!(multispace), expr)
-      , preceded!(opt!(multispace), char!(')'))));
+      , preceded!(opt!(multispace), char!(')')))
+      | chain!(
+          func: map_opt!(alphanumeric, get_function)
+        ~ args: delimited!(char!('('), preceded!(opt!(multispace), separated_nonempty_list!(delimited!(opt!(multispace), char!(','), opt!(multispace)), expr)), preceded!(opt!(multispace), char!(')'))),
+          || simplify1(Expression::Call(func, args))
+      )));
 
 #[inline]
 named!(recognize_number1<&[u8]>, recognize!(
@@ -165,6 +218,9 @@ named!(expr<Expression>,
 named!(input<Expression>, chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res}));
 
 fn simplify1(expr: Expression) -> Expression {
+    fn all_known(a: &Vec<Expression>) -> bool {
+        a.iter().all(Expression::is_known)
+    }
     use Expression as E;
     use Expression::Value as V;
     match expr {
@@ -175,12 +231,24 @@ fn simplify1(expr: Expression) -> Expression {
         E::Sub(box V(a), box V(b)) => V(a - b),
         E::Neg(box V(a)) => V(-a),
         E::Neg(box E::Neg(box a)) => a,
+        E::Call(ref f, ref a) if all_known(a) => V(f(a.iter().map(Expression::extract_value).collect())),
         expr => expr
     }
 }
 
 macro_rules! test_expr {
     ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], Expression::Value($v))));
+}
+macro_rules! test_approx {
+    ( $x:expr, $v: expr) => ({
+        let res = input(concat!($x, "?").as_bytes());
+        match &res {
+            &IResult::Done(_, Expression::Value(val)) => {
+                assert_eq!(res, IResult::Done(&b""[..], Expression::Value(val)));
+                assert!((val - $v).abs() < 1e-6)
+            },
+            _ => panic!("input not consumed: {:?}", res)
+        }});
 }
 macro_rules! fail_expr {
     ( $x: expr ) => (match input(concat!($x, "?").as_bytes()) { IResult::Done(_, _) => panic!("should have failed"), _ => () })
@@ -263,6 +331,12 @@ fn test_floating() {
 fn test_num_const() {
     test_expr!("pi", std::f64::consts::PI);
     test_expr!("e", std::f64::consts::E);
+}
+
+#[test]
+fn test_function() {
+    test_approx!("sin(pi/6)", 0.5);
+    test_approx!("atan2(1, 1)", std::f64::consts::FRAC_PI_4);
 }
 
 fn main() {
