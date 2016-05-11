@@ -1,4 +1,6 @@
 use std::ops::Neg;
+use std::cmp;
+use std::cmp::Ord;
 
 /// Rational numbers. The following are invariants:
 ///
@@ -121,7 +123,8 @@ impl<T, U> CheckableOverflow<U> for Result<T, OverflowError> where T: CheckableO
 }
 
 impl Neg for Rational {
-    type Output = Neg;
+    type Output = Rational;
+    #[inline]
     fn neg(self) -> Rational {
         Rational {
             num: -self.num,
@@ -147,6 +150,13 @@ impl Rational {
             num: num / gcd,
             den: (den / gcd) as u32, // guaranteed to be positive
         }.check_overflow()
+    }
+    #[inline]
+    pub fn negate(&self) -> Rational {
+        Rational {
+            num: -self.num,
+            den: self.den,
+        }
     }
     #[inline]
     pub fn recip(&self) -> Result<Rational, OverflowError> {
@@ -183,7 +193,7 @@ impl Rational {
                 }.check_overflow()
             } else {
                 if exp != i32::min_value() {
-                    try!(self.pow_r(-exp)).recip()
+                    try!(self.pow(-exp)).recip()
                 } else {
                     if (self.num == 1 || self.num == -1) && self.den == 1 {
                         Ok(Rational { num: 1, den: 1 })
@@ -197,12 +207,12 @@ impl Rational {
         }
     }
     pub fn mul(&self, other: &Rational) -> Result<Rational, OverflowError> {
-        match (self.num.checked_mul(other.num), self.den.checked_mul(other.den)) {
+        match (self.num.checked_mul(other.num), (self.den as i32).checked_mul(other.den as i32)) {
             (Some(np), Some(dp)) => {
-                let gcd = try!(gcd(np, dp)); // guaranteed positive
+                let gcd = gcd(np, dp); // guaranteed positive
                 Rational {
                     num: np / gcd,
-                    den: dp / gcd as u32,
+                    den: (dp / gcd) as u32,
                 }.check_overflow()
             },
             _ => {
@@ -212,21 +222,21 @@ impl Rational {
                 // We find n1d2 and n2d1 which are the largest
                 // factors of a, d and b, c to avoid overflow as much
                 // as possible.
-                let n1d2 = try!(gcd(self.num, other.den));
-                let n2d1 = try!(gcd(self.den, other.num));
+                let n1d2 = gcd(self.num, other.den as i32);
+                let n2d1 = gcd(self.den as i32, other.num);
                 Rational {
-                    num: try!((self.num / n1d1).checked_mul(other.num / n2d1).ok_or(OverflowError)),
-                    den: try!((self.den / n2d1).checked_mul(other.den / n1d2).ok_or(OverflowError)),
+                    num: try!((self.num / n1d2).checked_mul(other.num / n2d1).ok_or(OverflowError)),
+                    den: try!((self.den as i32 / n2d1).checked_mul(other.den as i32 / n1d2).ok_or(OverflowError)) as u32,
                 }.check_overflow()
             },
         }
     }
     #[inline]
     pub fn div(&self, other: &Rational) -> Result<Rational, OverflowError> {
-        self.mul(try!(other.recip()))
+        self.mul(&try!(other.recip()))
     }
     pub fn add(&self, other: &Rational) -> Result<Rational, OverflowError> {
-        let dgcd = try!(gcd(self.den as i32, other.den as i32)) as u32;
+        let dgcd = gcd(self.den as i32, other.den as i32) as u32;
         let a = self.den / dgcd;
         let b = other.den / dgcd;
         let denom = try!(self.den.checked_mul(b).ok_or(OverflowError));
@@ -239,35 +249,53 @@ impl Rational {
     }
     #[inline]
     pub fn sub(&self, other: &Rational) -> Result<Rational, OverflowError> {
-        self.add(-other)
+        self.add(&other.negate())
     }
 }
 
 impl Ord for Rational {
     fn cmp(&self, other: &Rational) -> cmp::Ordering {
         if self.is_negative() != other.is_negative() {
-            return self.num.cmp(other.num)
+            return self.num.cmp(&other.num)
         }
         if self.is_negative() {
-            return (-self).cmp(-other).reverse()
+            return self.negate().cmp(&other.negate()).reverse()
         }
-        match (self.num.checked_mul(other.den), self.den.checked_mul(other.num)) {
-            (Some(a), Some(b)) => a.cmp(b),
+        match (self.num.checked_mul(other.den as i32), (self.den as i32).checked_mul(other.num)) {
+            (Some(a), Some(b)) => a.cmp(&b),
             _ => {
                 // integer overflow with direct comparison
-                if self.num == other.num {
-                    return other.den.cmp(self.den)
+                if self.den == other.den {
+                    return self.num.cmp(&other.num)
                 }
-                // TODO: implement rest
-                unimplemented!();
+                if self.num == other.num {
+                    return other.den.cmp(&self.den)
+                }
+                let (ai, af) = (self.num / self.den as i32, self.num % self.den as i32);
+                let (bi, bf) = (other.num / other.den as i32, other.num % other.den as i32);
+                if ai > bi {
+                    cmp::Ordering::Greater
+                } else if ai < bi {
+                    cmp::Ordering::Less
+                } else { // partial fraction comparison
+                    (Rational { num: other.den as i32, den: bf as u32 }).cmp(&Rational { num: self.den as i32, den: af as u32 })
+                }
             }
         }
+    }
+}
+
+impl PartialOrd for Rational {
+    fn partial_cmp(&self, other: &Rational) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cmp;
+    use std::cmp::Ordering;
 
     #[test]
     fn test_new_reduce() {
@@ -287,6 +315,41 @@ mod tests {
                 assert!(Rational::from_integer(n).unwrap().is_integer());
             } else {
                 assert_eq!(Rational::from_integer(n), Err(OverflowError));
+            }
+        }
+    }
+
+    #[test]
+    fn test_pow() {
+        assert_eq!(Rational::new(3, 2).unwrap().pow(16), Rational::new(43046721, 65536));
+        assert_eq!(Rational::new(3, 2).unwrap().pow(-16), Rational::new(65536, 43046721));
+        assert_eq!(Rational::new(26, 72).unwrap().pow(200), Err(OverflowError));
+        assert_eq!(Rational::new(26, 72).unwrap().pow(-200), Err(OverflowError));
+    }
+
+    #[test]
+    fn test_cmp() {
+        let tests = (vec![
+            Rational::new(2147483645, 2147483647),
+            Rational::new(1073741823, 1073741824),
+            Rational::new(2147483644, 2147483645),
+            Rational::new(2147483645, 2147483646),
+            Rational::new(2147483646, 2147483647),
+            Rational::new(2147483647, 2147483646),
+        ]).into_iter().map(Result::unwrap).collect::<Vec<Rational>>();
+        fn compare(a: Rational, b: Rational, c: Ordering) {
+            assert_eq!(a.cmp(&b), c);
+            assert_eq!(b.cmp(&a).reverse(), c);
+            assert_eq!(a.negate().cmp(&b.negate()).reverse(), c);
+            assert_eq!(b.negate().cmp(&a.negate()), c);
+        }
+        for (i, &a) in tests.iter().enumerate() {
+            compare(a, a, Ordering::Equal);
+            assert!(a == a);
+            compare(-a, a, Ordering::Less);
+            for &b in &tests[i + 1..] {
+                compare(a, b, Ordering::Less);
+                compare(a.recip().unwrap(), b.recip().unwrap(), Ordering::Greater);
             }
         }
     }
