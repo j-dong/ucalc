@@ -8,6 +8,7 @@ use std::str;
 use std::fmt;
 
 mod rational;
+mod value;
 
 enum Expression {
     Value(f64),

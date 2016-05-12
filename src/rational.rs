@@ -1,6 +1,7 @@
 use std::ops::Neg;
 use std::cmp;
 use std::cmp::Ord;
+use std::fmt;
 
 /// Rational numbers. The following are invariants:
 ///
@@ -12,8 +13,8 @@ use std::cmp::Ord;
 ///   cause the denominator to be zero would return `Err(OverflowError)`.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq)]
 pub struct Rational {
-    num: i32,
-    den: u32,
+    pub num: i32,
+    pub den: u32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -129,6 +130,16 @@ impl Neg for Rational {
         Rational {
             num: -self.num,
             den: self.den,
+        }
+    }
+}
+
+impl fmt::Display for Rational {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        if self.den == 1 {
+            write!(f, "{}", self.num)
+        } else {
+            write!(f, "{}/{}", self.num, self.den)
         }
     }
 }
@@ -291,11 +302,29 @@ impl PartialOrd for Rational {
     }
 }
 
+pub trait AsFloat {
+    fn as_float(&self) -> f64;
+}
+
+impl AsFloat for f64 {
+    fn as_float(&self) -> f64 {
+        *self
+    }
+}
+
+impl AsFloat for Rational {
+    fn as_float(&self) -> f64 {
+        self.num as f64 / self.den as f64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::cmp;
     use std::cmp::Ordering;
+    use std::fmt;
+    use std::fmt::{Write, Display};
 
     #[test]
     fn test_new_reduce() {
@@ -358,5 +387,21 @@ mod tests {
     #[should_panic]
     fn test_zero_denom() {
         Rational::new(i32::min_value(), 0).unwrap();
+    }
+
+    #[test]
+    fn test_display() {
+        fn test_str(a: Result<Rational, OverflowError>, b: &str) -> () {
+            let mut s = String::new();
+            write!(s, "{}", a.unwrap());
+            assert_eq!(s, b)
+        }
+        test_str(Rational::new(1, 1), "1");
+        test_str(Rational::new(5, 1), "5");
+        test_str(Rational::new(5, -1), "-5");
+        test_str(Rational::new(-5, 1), "-5");
+        test_str(Rational::new(-5, -1), "5");
+        test_str(Rational::new(5, 2), "5/2");
+        test_str(Rational::new(5, -2), "-5/2");
     }
 }
