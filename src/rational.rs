@@ -191,6 +191,7 @@ impl Rational {
     pub fn is_integer(&self) -> bool {
         self.den == 1
     }
+    #[inline]
     pub fn is_negative(&self) -> bool {
         self.num < 0
     }
@@ -325,17 +326,17 @@ mod tests {
     use std::cmp::Ordering;
     use std::fmt;
     use std::fmt::{Write, Display};
-    
+
     macro_rules! rat {
-        ( $num:tt / $den:tt ) => (Rational::new($num, $den).unwrap())
+        ( $num:expr, $den:expr ) => (Rational::new($num, $den).unwrap())
     }
 
     #[test]
     fn test_new_reduce() {
-        assert_eq!(rat!(i32::min_value() / i32::min_value()), rat!(1 / 1));
-        assert_eq!(rat!(i32::max_value() / i32::max_value()), rat!(1 / 1));
-        assert_eq!(rat!(6 / 4), rat!(-3 / -2));
-        assert_eq!(rat!(16 / 32), Rational { num: 1, den: 2 });
+        assert_eq!(rat!(i32::min_value(), i32::min_value()), rat!(1, 1));
+        assert_eq!(rat!(i32::max_value(), i32::max_value()), rat!(1, 1));
+        assert_eq!(rat!(6, 4), rat!(-3, -2));
+        assert_eq!(rat!(16, 32), Rational { num: 1, den: 2 });
     }
 
     #[test]
@@ -354,22 +355,22 @@ mod tests {
 
     #[test]
     fn test_pow() {
-        assert_eq!(rat!(3 / 2).pow(16), Rational::new(43046721, 65536));
-        assert_eq!(rat!(3 / 2).pow(-16), Rational::new(65536, 43046721));
-        assert_eq!(rat!(26 / 72).pow(200), Err(OverflowError));
-        assert_eq!(rat!(26 / 72).pow(-200), Err(OverflowError));
+        assert_eq!(rat!(3, 2).pow(16), Rational::new(43046721, 65536));
+        assert_eq!(rat!(3, 2).pow(-16), Rational::new(65536, 43046721));
+        assert_eq!(rat!(26, 72).pow(200), Err(OverflowError));
+        assert_eq!(rat!(26, 72).pow(-200), Err(OverflowError));
     }
 
     #[test]
     fn test_cmp() {
-        let tests = (vec![
-            rat!(2147483645 / 2147483647),
-            rat!(1073741823 / 1073741824),
-            rat!(2147483644 / 2147483645),
-            rat!(2147483645 / 2147483646),
-            rat!(2147483646 / 2147483647),
-            rat!(2147483647 / 2147483646),
-        ]);
+        let tests = vec![
+            rat!(2147483645, 2147483647),
+            rat!(1073741823, 1073741824),
+            rat!(2147483644, 2147483645),
+            rat!(2147483645, 2147483646),
+            rat!(2147483646, 2147483647),
+            rat!(2147483647, 2147483646),
+        ];
         fn compare(a: Rational, b: Rational, c: Ordering) {
             assert_eq!(a.cmp(&b), c);
             assert_eq!(b.cmp(&a).reverse(), c);
@@ -400,12 +401,12 @@ mod tests {
             write!(s, "{}", a);
             assert_eq!(s, b)
         }
-        test_str(rat!(1 / 1), "1");
-        test_str(rat!(5 / 1), "5");
-        test_str(rat!(5 / -1), "-5");
-        test_str(rat!(-5 / 1), "-5");
-        test_str(rat!(-5 / -1), "5");
-        test_str(rat!(5 / 2), "5/2");
-        test_str(rat!(5 / -2), "-5/2");
+        test_str(rat!(1, 1), "1");
+        test_str(rat!(5, 1), "5");
+        test_str(rat!(5, -1), "-5");
+        test_str(rat!(-5, 1), "-5");
+        test_str(rat!(-5, -1), "5");
+        test_str(rat!(5, 2), "5/2");
+        test_str(rat!(5, -2), "-5/2");
     }
 }
