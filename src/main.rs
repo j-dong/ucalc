@@ -10,8 +10,11 @@ use std::fmt;
 mod rational;
 mod value;
 
+use rational::AsFloat;
+
 enum Expression {
-    Value(f64),
+    Value(value::Value),
+    Error(value::ArithmeticError),
     Exp(Box<Expression>, Box<Expression>),
     Mul(Box<Expression>, Box<Expression>),
     Div(Box<Expression>, Box<Expression>),
@@ -19,6 +22,41 @@ enum Expression {
     Sub(Box<Expression>, Box<Expression>),
     Neg(Box<Expression>),
     Call(Box<Fn(Vec<f64>) -> f64>, Vec<Expression>),
+}
+
+trait ToValue {
+    fn to_value(&self) -> Result<value::Value, value::ArithmeticError>;
+}
+
+#[inline]
+fn make_value<V: ToValue>(v: V) -> Expression {
+    v.to_value().map(Expression::Value).unwrap_or_else(Expression::Error)
+}
+
+#[inline]
+fn input_value(v: f64) -> Expression {
+    make_value(v)
+}
+
+impl ToValue for Result<value::Value, value::ArithmeticError> {
+    #[inline]
+    fn to_value(&self) -> Result<value::Value, value::ArithmeticError> {
+        *self
+    }
+}
+
+impl ToValue for value::Value {
+    #[inline]
+    fn to_value(&self) -> Result<value::Value, value::ArithmeticError> {
+        Ok(*self)
+    }
+}
+
+impl ToValue for f64 {
+    #[inline]
+    fn to_value(&self) -> Result<value::Value, value::ArithmeticError> {
+        value::Value::from_float(*self)
+    }
 }
 
 impl PartialEq for Expression {
@@ -31,6 +69,7 @@ impl PartialEq for Expression {
             (&Expression::Add(ref a, ref b), &Expression::Add(ref c, ref d)) => a == c && b == d,
             (&Expression::Sub(ref a, ref b), &Expression::Sub(ref c, ref d)) => a == c && b == d,
             (&Expression::Neg(ref a), &Expression::Neg(ref b)) => a == b,
+            (&Expression::Error(ref a), &Expression::Error(ref b)) => a == b,
             _ => false
         }
     }
@@ -47,6 +86,7 @@ impl fmt::Debug for Expression {
             &Expression::Sub(ref a, ref b) => write!(f, "Expression::Sub({:?}, {:?})", a, b),
             &Expression::Neg(ref a) => write!(f, "Expression::Neg({:?})", a),
             &Expression::Call(_, ref a) => write!(f, "Expression::Call(fn, {:?})", a),
+            &Expression::Error(ref a) => write!(f, "Expression::Error({:?})", a),
         }
     }
 }
@@ -60,9 +100,16 @@ impl Expression {
         }
     }
     #[inline]
-    fn extract_value(&self) -> f64 {
+    fn extract_value(&self) -> value::Value {
         match self {
             &Expression::Value(a) => a,
+            _ => panic!("extract value of unknown")
+        }
+    }
+    #[inline]
+    fn extract_float(&self) -> f64 {
+        match self {
+            &Expression::Value(a) => a.as_float(),
             _ => panic!("extract value of unknown")
         }
     }
@@ -145,8 +192,8 @@ fn get_numerical_constant(res: &[u8]) -> Option<f64> {
 named!(num_const<f64>, map_opt!(alpha, get_numerical_constant));
 
 named!(atom<Expression>, alt!(parens
-                            | alt!(number | num_const)
-                                => {Expression::Value}));
+                            | number => {input_value}
+                            | num_const => {make_value}));
 
 named!(imul<Expression>, chain!(
        first: atom
@@ -174,8 +221,8 @@ named!(exp<Expression>, chain!(
                       preceded!(opt!(multispace), unary))?, ||
     match (lhs, rhs) {
         (lhs, None) => lhs,
-        (Expression::Value(a), Some(Expression::Value(b)))
-            => Expression::Value(a.powf(b)),
+        (Expression::Value(ref a), Some(Expression::Value(ref b)))
+            => make_value(a.pow(b)),
         (lhs, Some(b))
             => Expression::Exp(Box::new(lhs), Box::new(b)),
     }
@@ -225,20 +272,20 @@ fn simplify1(expr: Expression) -> Expression {
     use Expression as E;
     use Expression::Value as V;
     match expr {
-        E::Exp(box V(a), box V(b)) => V(a.powf(b)),
-        E::Mul(box V(a), box V(b)) => V(a * b),
-        E::Div(box V(a), box V(b)) => V(a / b),
-        E::Add(box V(a), box V(b)) => V(a + b),
-        E::Sub(box V(a), box V(b)) => V(a - b),
-        E::Neg(box V(a)) => V(-a),
+        E::Exp(box V(ref a), box V(ref b)) => make_value(a.pow(b)),
+        E::Mul(box V(ref a), box V(ref b)) => make_value(a.mul(b)),
+        E::Div(box V(ref a), box V(ref b)) => make_value(a.div(b)),
+        E::Add(box V(ref a), box V(ref b)) => make_value(a.add(b)),
+        E::Sub(box V(ref a), box V(ref b)) => make_value(a.sub(b)),
+        E::Neg(box V(a)) => make_value(-a),
         E::Neg(box E::Neg(box a)) => a,
-        E::Call(ref f, ref a) if all_known(a) => V(f(a.iter().map(Expression::extract_value).collect())),
+        E::Call(ref f, ref a) if all_known(a) => make_value(f(a.iter().map(Expression::extract_float).collect())),
         expr => expr
     }
 }
 
 macro_rules! test_expr {
-    ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], Expression::Value($v))));
+    ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], make_value($v))));
 }
 macro_rules! test_approx {
     ( $x:expr, $v: expr) => ({
@@ -246,7 +293,7 @@ macro_rules! test_approx {
         match &res {
             &IResult::Done(_, Expression::Value(val)) => {
                 assert_eq!(res, IResult::Done(&b""[..], Expression::Value(val)));
-                assert!((val - $v).abs() < 1e-6)
+                assert!((val.as_float() - $v).abs() < 1e-6)
             },
             _ => panic!("input not consumed: {:?}", res)
         }});

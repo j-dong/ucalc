@@ -2,7 +2,7 @@ use rational::*;
 
 use std::cmp;
 use std::cmp::Ord;
-use std::ops::{Add,Sub,Mul,Div};
+use std::ops::{Add,Sub,Mul,Div,Neg};
 use std::fmt;
 
 #[derive(Copy, Clone, Debug)]
@@ -51,15 +51,15 @@ impl PartialOrd for Value {
 }
 
 // includes unit errors
-#[derive(Debug, PartialEq, Eq, Hash)]
-enum ArithmeticError {
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
+pub enum ArithmeticError {
     DivideByZeroError,
     DomainError,
     OverflowError,
 }
 
 impl Value {
-    fn from_float(f: f64) -> Result<Value, ArithmeticError> {
+    pub fn from_float(f: f64) -> Result<Value, ArithmeticError> {
         if !f.is_nan() {
             if (f * 8.0).fract() != 0.0 {
                 Ok(Value::Inexact(f))
@@ -76,7 +76,7 @@ impl Value {
         }
     }
     #[inline]
-    fn from_inexact(f: f64) -> Result<Value, ArithmeticError> {
+    pub fn from_inexact(f: f64) -> Result<Value, ArithmeticError> {
         if !f.is_nan() {
             Ok(Value::Inexact(f))
         } else {
@@ -84,44 +84,44 @@ impl Value {
         }
     }
     #[inline]
-    fn get_exact(&self) -> Option<&Rational> {
+    pub fn get_exact(&self) -> Option<&Rational> {
         match self {
             &Value::Exact(ref a) => Some(a),
             &Value::Inexact(_) => None,
         }
     }
     #[inline]
-    fn as_integer(&self) -> Option<i32> {
+    pub fn as_integer(&self) -> Option<i32> {
         match self {
             &Value::Exact(ref a) => if a.is_integer() { Some(a.num) } else { None },
             &Value::Inexact(a) => if a.fract() == 0.0 && a.abs() <= i32::max_value() as f64 { Some(a as i32) } else { None },
         }
     }
-    fn add(&self, other: &Value) -> Result<Value, ArithmeticError> {
+    pub fn add(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
             (Some(a), Some(b)) => a.add(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() + other.as_float())),
             _ => Value::from_inexact(self.as_float() + other.as_float())
         }
     }
-    fn sub(&self, other: &Value) -> Result<Value, ArithmeticError> {
+    pub fn sub(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
             (Some(a), Some(b)) => a.sub(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() - other.as_float())),
             _ => Value::from_inexact(self.as_float() - other.as_float())
         }
     }
-    fn mul(&self, other: &Value) -> Result<Value, ArithmeticError> {
+    pub fn mul(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
             (Some(a), Some(b)) => a.mul(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() * other.as_float())),
             _ => Value::from_inexact(self.as_float() * other.as_float())
         }
     }
-    fn div(&self, other: &Value) -> Result<Value, ArithmeticError> {
+    pub fn div(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
             (Some(a), Some(b)) => a.div(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() / other.as_float())),
             _ => Value::from_inexact(self.as_float() / other.as_float())
         }
     }
-    fn pow(&self, other: &Value) -> Result<Value, ArithmeticError> {
+    pub fn pow(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match self.get_exact() {
             Some(a) => if let Some(e) = other.as_integer() { a.pow(e).map(Value::Exact).or_else(|_| Value::from_inexact(a.as_float().powi(e))) } else { Value::from_inexact(a.as_float().powf(other.as_float())) },
             None => Value::from_inexact(self.as_float().powf(other.as_float()))
@@ -154,6 +154,16 @@ impl Div for Value {
     type Output = Value;
     fn div(self, other: Value) -> Value {
         (&self).div(&other).unwrap()
+    }
+}
+
+impl Neg for Value {
+    type Output = Value;
+    fn neg(self) -> Value {
+        match self {
+            Value::Exact(a) => Value::Exact(-a),
+            Value::Inexact(a) => Value::Inexact(-a),
+        }
     }
 }
 
