@@ -191,6 +191,7 @@ impl Rational {
     pub fn is_integer(&self) -> bool {
         self.den == 1
     }
+    #[inline]
     pub fn is_negative(&self) -> bool {
         self.num < 0
     }
