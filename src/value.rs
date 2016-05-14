@@ -60,7 +60,7 @@ pub enum ArithmeticError {
 
 impl Value {
     pub fn from_float(f: f64) -> Result<Value, ArithmeticError> {
-        if !f.is_nan() {
+        if !f.is_nan() && !f.is_infinite() {
             if (f * 8.0).fract() != 0.0 {
                 Ok(Value::Inexact(f))
             } else {
@@ -72,15 +72,23 @@ impl Value {
                 }
             }
         } else {
-            Err(ArithmeticError::DomainError)
+            if f.is_infinite() {
+                Err(ArithmeticError::OverflowError)
+            } else {
+                Err(ArithmeticError::DomainError)
+            }
         }
     }
     #[inline]
-    pub fn from_inexact(f: f64) -> Result<Value, ArithmeticError> {
-        if !f.is_nan() {
+    pub fn from_input(f: f64) -> Result<Value, ArithmeticError> {
+        if !f.is_nan() && !f.is_infinite() {
             Ok(Value::Inexact(f))
         } else {
-            Err(ArithmeticError::DomainError)
+            if f.is_infinite() {
+                Err(ArithmeticError::OverflowError)
+            } else {
+                Err(ArithmeticError::DomainError)
+            }
         }
     }
     #[inline]
@@ -99,32 +107,35 @@ impl Value {
     }
     pub fn add(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
-            (Some(a), Some(b)) => a.add(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() + other.as_float())),
-            _ => Value::from_inexact(self.as_float() + other.as_float())
+            (Some(a), Some(b)) => a.add(b).map(Value::Exact).or_else(|_| Value::from_float(self.as_float() + other.as_float())),
+            _ => Value::from_float(self.as_float() + other.as_float())
         }
     }
     pub fn sub(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
-            (Some(a), Some(b)) => a.sub(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() - other.as_float())),
-            _ => Value::from_inexact(self.as_float() - other.as_float())
+            (Some(a), Some(b)) => a.sub(b).map(Value::Exact).or_else(|_| Value::from_float(self.as_float() - other.as_float())),
+            _ => Value::from_float(self.as_float() - other.as_float())
         }
     }
     pub fn mul(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
-            (Some(a), Some(b)) => a.mul(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() * other.as_float())),
-            _ => Value::from_inexact(self.as_float() * other.as_float())
+            (Some(a), Some(b)) => a.mul(b).map(Value::Exact).or_else(|_| Value::from_float(self.as_float() * other.as_float())),
+            _ => Value::from_float(self.as_float() * other.as_float())
         }
     }
     pub fn div(&self, other: &Value) -> Result<Value, ArithmeticError> {
+        if other.as_float() == 0.0 {
+            return Err(ArithmeticError::DivideByZeroError);
+        }
         match (self.get_exact(), other.get_exact()) {
-            (Some(a), Some(b)) => a.div(b).map(Value::Exact).or_else(|_| Value::from_inexact(self.as_float() / other.as_float())),
-            _ => Value::from_inexact(self.as_float() / other.as_float())
+            (Some(a), Some(b)) => a.div(b).map(Value::Exact).or_else(|_| Value::from_float(self.as_float() / other.as_float())),
+            _ => Value::from_float(self.as_float() / other.as_float())
         }
     }
     pub fn pow(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match self.get_exact() {
-            Some(a) => if let Some(e) = other.as_integer() { a.pow(e).map(Value::Exact).or_else(|_| Value::from_inexact(a.as_float().powi(e))) } else { Value::from_inexact(a.as_float().powf(other.as_float())) },
-            None => Value::from_inexact(self.as_float().powf(other.as_float()))
+            Some(a) => if let Some(e) = other.as_integer() { a.pow(e).map(Value::Exact).or_else(|_| Value::from_float(a.as_float().powi(e))) } else { Value::from_float(a.as_float().powf(other.as_float())) },
+            None => Value::from_float(self.as_float().powf(other.as_float()))
         }
     }
 }
@@ -188,13 +199,13 @@ mod tests {
 
     #[test]
     fn test_as_float() {
-        for a in vec![f64::INFINITY, -f64::INFINITY, 0.0, -0.0, 8.0, 0.125, 10e100] {
-            assert_eq!(Value::from_float(a).unwrap().as_float(), a);
+        for a in vec![0.0, -0.0, 8.0, 0.125, 10e100] {
+            assert_eq!(Value::from_input(a).unwrap().as_float(), a);
         }
     }
 
     macro_rules! val {
-        ( V $a:expr ) => ( Value::from_float($a).unwrap() )
+        ( V $a:expr ) => ( Value::from_input($a).unwrap() )
     }
 
     #[test]

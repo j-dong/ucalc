@@ -35,9 +35,12 @@ fn make_value<V: ToValue>(v: V) -> Expression {
     v.to_value().map(Expression::Value).unwrap_or_else(Expression::Error)
 }
 
+/// This is only called when handling user input. It treats some
+/// numbers that can be handled exactly as fractions rather than
+/// floating-point inexact numbers.
 #[inline]
 fn input_value(v: f64) -> Expression {
-    make_value(v)
+    make_value(value::Value::from_input(v))
 }
 
 impl ToValue for Result<value::Value, value::ArithmeticError> {
