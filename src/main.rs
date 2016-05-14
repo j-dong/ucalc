@@ -6,6 +6,8 @@ use nom::{multispace, alpha, alphanumeric, IResult};
 
 use std::str;
 use std::fmt;
+use std::io;
+use std::io::Write;
 
 mod rational;
 mod value;
@@ -87,6 +89,16 @@ impl fmt::Debug for Expression {
             &Expression::Neg(ref a) => write!(f, "Expression::Neg({:?})", a),
             &Expression::Call(_, ref a) => write!(f, "Expression::Call(fn, {:?})", a),
             &Expression::Error(ref a) => write!(f, "Expression::Error({:?})", a),
+        }
+    }
+}
+
+impl fmt::Display for Expression {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &Expression::Value(ref a) => write!(f, "{}", a),
+            &Expression::Error(ref a) => write!(f, "{:?}", a),
+            _ => write!(f, "unknown"),
         }
     }
 }
@@ -388,10 +400,18 @@ fn test_function() {
 }
 
 fn main() {
-    println!("A: {:?}", input(b"1?"));
-    println!("A: {:?}", input(b"1*1?"));
-    println!("A: {:?}", input(b"1/2*3?"));
-    println!("A: {:?}", input(b"1^1?"));
-    println!("A: {:?}", input(b"1^1^1?"));
-    println!("Result: {:?}", input(b"2/3^5*2^1^2?"));
+    // REPL
+    loop {
+        let mut line = String::new();
+        print!("ucalc> ");
+        io::stdout().flush().expect("error flushing");
+        io::stdin().read_line(&mut line).expect("error reading");
+        if line.trim() == "quit" { break }
+        // TODO: move to separate function
+        line.push_str("?");
+        match input(line.as_bytes()) {
+            IResult::Done(_, val) => println!("=> {}", val),
+            _ => println!("syntax error"),
+        }
+    }
 }
