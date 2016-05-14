@@ -233,10 +233,8 @@ named!(exp<Expression>, chain!(
                       preceded!(opt!(multispace), unary))?, ||
     match (lhs, rhs) {
         (lhs, None) => lhs,
-        (Expression::Value(ref a), Some(Expression::Value(ref b)))
-            => make_value(a.pow(b)),
         (lhs, Some(b))
-            => Expression::Exp(Box::new(lhs), Box::new(b)),
+            => simplify1(Expression::Exp(Box::new(lhs), Box::new(b))),
     }
 ));
 
