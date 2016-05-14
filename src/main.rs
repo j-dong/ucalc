@@ -112,6 +112,13 @@ impl Expression {
         }
     }
     #[inline]
+    fn is_error(&self) -> bool {
+        match self {
+            &Expression::Error(_) => true,
+            _ => false
+        }
+    }
+    #[inline]
     fn extract_value(&self) -> value::Value {
         match self {
             &Expression::Value(a) => a,
@@ -279,17 +286,35 @@ fn simplify1(expr: Expression) -> Expression {
     fn all_known(a: &Vec<Expression>) -> bool {
         a.iter().all(Expression::is_known)
     }
+    fn any_error(a: &Vec<Expression>) -> bool {
+        a.iter().any(Expression::is_error)
+    }
     use Expression as E;
     use Expression::Value as V;
     match expr {
         E::Exp(box V(ref a), box V(ref b)) => make_value(a.pow(b)),
+        E::Exp(_, box e @ E::Error(_)) => e,
+        E::Exp(box e @ E::Error(_), _) => e,
         E::Mul(box V(ref a), box V(ref b)) => make_value(a.mul(b)),
+        E::Mul(_, box e @ E::Error(_)) => e,
+        E::Mul(box e @ E::Error(_), _) => e,
         E::Div(box V(ref a), box V(ref b)) => make_value(a.div(b)),
+        E::Div(_, box e @ E::Error(_)) => e,
+        E::Div(box e @ E::Error(_), _) => e,
         E::Add(box V(ref a), box V(ref b)) => make_value(a.add(b)),
+        E::Add(_, box e @ E::Error(_)) => e,
+        E::Add(box e @ E::Error(_), _) => e,
         E::Sub(box V(ref a), box V(ref b)) => make_value(a.sub(b)),
+        E::Sub(_, box e @ E::Error(_)) => e,
+        E::Sub(box e @ E::Error(_), _) => e,
         E::Neg(box V(a)) => make_value(-a),
         E::Neg(box E::Neg(box a)) => a,
+        E::Neg(box e @ E::Error(_)) => e,
         E::Call(ref f, ref a) if all_known(a) => make_value(f(a.iter().map(Expression::extract_float).collect())),
+        E::Call(ref f, ref a) if any_error(a) => match a.iter().find(|e| e.is_error()).expect("no error found") {
+            &E::Error(a) => E::Error(a),
+            _ => panic!("not actually an error")
+        },
         expr => expr
     }
 }
