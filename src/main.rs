@@ -12,6 +12,7 @@ use std::io::Write;
 mod rational;
 mod value;
 mod unit;
+mod uval;
 
 use rational::AsFloat;
 

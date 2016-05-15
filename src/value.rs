@@ -56,10 +56,11 @@ pub enum ArithmeticError {
     DivideByZeroError,
     DomainError,
     OverflowError,
+    UnitError,
 }
 
 impl Value {
-    pub fn from_float(f: f64) -> Result<Value, ArithmeticError> {
+    pub fn from_input(f: f64) -> Result<Value, ArithmeticError> {
         if !f.is_nan() && !f.is_infinite() {
             if (f * 8.0).fract() != 0.0 {
                 Ok(Value::Inexact(f))
@@ -80,7 +81,7 @@ impl Value {
         }
     }
     #[inline]
-    pub fn from_input(f: f64) -> Result<Value, ArithmeticError> {
+    pub fn from_float(f: f64) -> Result<Value, ArithmeticError> {
         if !f.is_nan() && !f.is_infinite() {
             Ok(Value::Inexact(f))
         } else {
