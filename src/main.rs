@@ -17,7 +17,7 @@ mod uval;
 use rational::AsFloat;
 
 enum Expression {
-    Value(value::Value),
+    Value(uval::UnitValue),
     Error(value::ArithmeticError),
     Exp(Box<Expression>, Box<Expression>),
     Mul(Box<Expression>, Box<Expression>),
@@ -29,7 +29,7 @@ enum Expression {
 }
 
 trait ToValue {
-    fn to_value(&self) -> Result<value::Value, value::ArithmeticError>;
+    fn to_value(&self) -> Result<uval::UnitValue, value::ArithmeticError>;
 }
 
 #[inline]
@@ -42,27 +42,27 @@ fn make_value<V: ToValue>(v: V) -> Expression {
 /// floating-point inexact numbers.
 #[inline]
 fn input_value(v: f64) -> Expression {
-    make_value(value::Value::from_input(v))
+    make_value(uval::UnitValue::from_input(v))
 }
 
-impl ToValue for Result<value::Value, value::ArithmeticError> {
+impl ToValue for Result<uval::UnitValue, value::ArithmeticError> {
     #[inline]
-    fn to_value(&self) -> Result<value::Value, value::ArithmeticError> {
+    fn to_value(&self) -> Result<uval::UnitValue, value::ArithmeticError> {
         *self
     }
 }
 
-impl ToValue for value::Value {
+impl ToValue for uval::UnitValue {
     #[inline]
-    fn to_value(&self) -> Result<value::Value, value::ArithmeticError> {
+    fn to_value(&self) -> Result<uval::UnitValue, value::ArithmeticError> {
         Ok(*self)
     }
 }
 
 impl ToValue for f64 {
     #[inline]
-    fn to_value(&self) -> Result<value::Value, value::ArithmeticError> {
-        value::Value::from_float(*self)
+    fn to_value(&self) -> Result<uval::UnitValue, value::ArithmeticError> {
+        uval::UnitValue::from_float(*self)
     }
 }
 
@@ -124,7 +124,7 @@ impl Expression {
         }
     }
     #[inline]
-    fn extract_value(&self) -> value::Value {
+    fn extract_value(&self) -> uval::UnitValue {
         match self {
             &Expression::Value(a) => a,
             _ => panic!("extract value of unknown")

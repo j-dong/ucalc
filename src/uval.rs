@@ -1,6 +1,6 @@
 use unit::*;
 use value::*;
-use rational::OverflowError;
+use rational::{OverflowError,AsFloat};
 use std::cmp;
 use std::ops::{Add,Sub,Mul,Div,Neg};
 use std::fmt;
@@ -25,6 +25,16 @@ impl PartialOrd for UnitValue {
         } else {
             None
         }
+    }
+}
+
+impl AsFloat for UnitValue {
+    #[inline]
+    fn as_float(&self) -> f64 {
+        if !self.unitless() {
+            println!("treating as unitless");
+        }
+        self.value.as_float()
     }
 }
 
