@@ -146,6 +146,13 @@ impl fmt::Display for Rational {
 
 impl Rational {
     #[inline]
+    pub fn zero() -> Rational {
+        Rational {
+            num: 0,
+            den: 1,
+        }
+    }
+    #[inline]
     pub fn from_integer(i: i32) -> Result<Rational, OverflowError> {
         Ok(Rational {
             num: try!(i.check_overflow()),
