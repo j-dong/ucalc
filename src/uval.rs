@@ -54,26 +54,54 @@ impl UnitValue {
         })
     }
     #[inline]
+    pub fn zero() -> UnitValue {
+        UnitValue {value: Value::zero(), unit: Unit::zero()}
+    }
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.value.is_zero()
+    }
+    #[inline]
+    fn checked_uval(value: Value, unit: Unit) -> UnitValue {
+        if value.is_zero() {
+            UnitValue::zero()
+        } else {
+            UnitValue {value: value, unit: unit}
+        }
+    }
+    #[inline]
     pub fn unitless(&self) -> bool {
         self.unit == Unit::zero()
     }
     pub fn add(&self, other: &UnitValue) -> Result<UnitValue, ArithmeticError> {
         if self.unit == other.unit {
-            Ok(UnitValue {
-                value: try!((&self.value).add(&other.value)),
-                unit: self.unit,
-            })
+            Ok(UnitValue::checked_uval(
+                try!((&self.value).add(&other.value)),
+                self.unit,
+            ))
         } else {
+            if self.is_zero() {
+                return Ok(other.clone())
+            }
+            if other.is_zero() {
+                return Ok(self.clone())
+            }
             Err(ArithmeticError::UnitError)
         }
     }
     pub fn sub(&self, other: &UnitValue) -> Result<UnitValue, ArithmeticError> {
         if self.unit == other.unit {
-            Ok(UnitValue {
-                value: try!((&self.value).sub(&other.value)),
-                unit: self.unit,
-            })
+            Ok(UnitValue::checked_uval(
+                try!((&self.value).sub(&other.value)),
+                self.unit,
+            ))
         } else {
+            if self.is_zero() {
+                return Ok(other.clone())
+            }
+            if other.is_zero() {
+                return Ok(self.clone())
+            }
             Err(ArithmeticError::UnitError)
         }
     }
@@ -154,7 +182,7 @@ impl fmt::Display for UnitValue {
         if self.unitless() {
             write!(f, "{}", self.value)
         } else {
-            write!(f, "{} {:?}", self.value, self.unit)
+            write!(f, "{} {}", self.value, self.unit)
         }
     }
 }

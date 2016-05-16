@@ -5,3 +5,5 @@ authors = ["James Dong <dong.james.sept14@gmail.com>"]
 
 [dependencies]
 nom = "~1.2.2"
+phf = "~0.7.14"
+phf_macros = "~0.7.14"

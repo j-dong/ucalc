@@ -199,6 +199,14 @@ impl Rational {
         self.den == 1
     }
     #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.num == 0
+    }
+    #[inline]
+    pub fn is_one(&self) -> bool {
+        self.num == 1 && self.den == 1
+    }
+    #[inline]
     pub fn is_negative(&self) -> bool {
         self.num < 0
     }

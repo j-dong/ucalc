@@ -106,6 +106,17 @@ impl Value {
             &Value::Inexact(a) => if a.fract() == 0.0 && a.abs() <= i32::max_value() as f64 { Some(a as i32) } else { None },
         }
     }
+    #[inline]
+    pub fn zero() -> Value {
+        Value::Exact(Rational::zero())
+    }
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        match self {
+            &Value::Exact(ref a) => a.is_zero(),
+            &Value::Inexact(a) => a == 0.0,
+        }
+    }
     pub fn add(&self, other: &Value) -> Result<Value, ArithmeticError> {
         match (self.get_exact(), other.get_exact()) {
             (Some(a), Some(b)) => a.add(b).map(Value::Exact).or_else(|_| Value::from_float(self.as_float() + other.as_float())),

@@ -1,6 +1,9 @@
 #![feature(box_patterns)]
+#![feature(plugin)]
+#![plugin(phf_macros)]
 #[macro_use]
 extern crate nom;
+extern crate phf;
 
 use nom::{multispace, alpha, alphanumeric, IResult};
 
@@ -13,6 +16,7 @@ mod rational;
 mod value;
 mod unit;
 mod uval;
+mod units;
 
 use rational::AsFloat;
 
@@ -212,12 +216,22 @@ fn get_numerical_constant(res: &[u8]) -> Option<f64> {
     }
 }
 
+fn get_unit(res: &[u8]) -> Option<uval::UnitValue> {
+    match str::from_utf8(res) {
+        Ok(a) => units::get(a),
+        Err(_) => None,
+    }
+}
+
 #[inline]
 named!(num_const<f64>, map_opt!(alpha, get_numerical_constant));
+#[inline]
+named!(unit_const<uval::UnitValue>, map_opt!(recognize!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), get_unit));
 
 named!(atom<Expression>, alt!(parens
                             | number => {input_value}
-                            | num_const => {make_value}));
+                            | num_const => {make_value}
+                            | unit_const => {Expression::Value}));
 
 named!(imul<Expression>, chain!(
        first: atom
