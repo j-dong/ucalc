@@ -8,6 +8,7 @@ use std::fmt::Write;
 
 use phf;
 
+// here are some types of units
 // I'm only doing the common units here; it'd take a while to type out all the uncommon ones
 const DIMENSIONLESS: Unit = Unit {m: Rational {num: 0, den: 1}, kg: Rational {num: 0, den: 1}, s: Rational {num: 0, den: 1}, a: Rational {num: 0, den: 1}, k: Rational {num: 0, den: 1}, cd: Rational {num: 0, den: 1}, mol: Rational {num: 0, den: 1}};
 const LENGTH: Unit = Unit {m: Rational {num: 1, den: 1}, kg: Rational {num: 0, den: 1}, s: Rational {num: 0, den: 1}, a: Rational {num: 0, den: 1}, k: Rational {num: 0, den: 1}, cd: Rational {num: 0, den: 1}, mol: Rational {num: 0, den: 1}};
@@ -43,13 +44,16 @@ const F_UNITS: Unit = Unit {m: Rational {num: 0, den: 1}, kg: Rational {num: 0, 
 const R_UNITS: Unit = Unit {m: Rational {num: 2, den: 1}, kg: Rational {num: 1, den: 1}, s: Rational {num: -2, den: 1}, a: Rational {num: 0, den: 1}, k: Rational {num: -1, den: 1}, cd: Rational {num: 0, den: 1}, mol: Rational {num: -1, den: 1}};
 const G_UNITS: Unit = Unit {m: Rational {num: 1, den: 1}, kg: Rational {num: 0, den: 1}, s: Rational {num: -2, den: 1}, a: Rational {num: 0, den: 1}, k: Rational {num: 0, den: 1}, cd: Rational {num: 0, den: 1}, mol: Rational {num: 0, den: 1}};
 
+// one (used for SI derived/base units)
 const ONE: Value = Value::Exact(Rational {num: 1, den: 1});
 
+// shortcut for values
 macro_rules! num {
     (E $a:expr, $b:expr) => (Value::Exact(Rational {num: $a, den: $b}));
     (I $a:expr) => (Value::Inexact($a));
 }
 
+/// Lookup table for named units
 static UNITS: phf::Map<&'static str, UnitValue> = phf_map! {
     "m" => UnitValue {unit: LENGTH, value: ONE},
     "kg" => UnitValue {unit: MASS, value: ONE},
@@ -150,6 +154,7 @@ static UNITS: phf::Map<&'static str, UnitValue> = phf_map! {
 //
 // 0-9 are positive, and
 // A-F are -1 through -6
+// Look up a unit's exponents to find a derived unit
 static LOOKUP: phf::Map<u32, &'static str> = phf_map! {
 //  0x0mksAKcm
     0x000A0000u32 => "Hz",
@@ -164,10 +169,12 @@ static LOOKUP: phf::Map<u32, &'static str> = phf_map! {
     0x001BA000u32 => "T",
 };
 
+/// Look up a name to find the corresponding unit
 pub fn get(key: &str) -> Option<UnitValue> {
     UNITS.get(key).cloned()
 }
 
+/// turn an exponent into the hex scheme above
 fn as_int(r: &Rational) -> Result<u8, ()> {
     if !r.is_integer() { return Err(()); }
     match r.num {
@@ -177,6 +184,7 @@ fn as_int(r: &Rational) -> Result<u8, ()> {
     }
 }
 
+/// generate a hash as described above
 fn u_hash(u: &Unit) -> Result<u32, ()> {
     Ok(
         (try!(as_int(&u.m  )) as u32) << 24 |
@@ -190,6 +198,7 @@ fn u_hash(u: &Unit) -> Result<u32, ()> {
     )
 }
 
+/// format a single unit and place it in the right variable
 macro_rules! fmt_unit {
     ($u:expr, $name:expr, $num:ident, $den:ident) => {
         if !$u.is_negative() {
@@ -212,6 +221,7 @@ macro_rules! fmt_unit {
 }
 
 impl fmt::Display for Unit {
+    /// Display a unit as a string (separates numerator and denominator)
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match u_hash(self).ok().and_then(|a| LOOKUP.get(&a)) {
             Some(a) => write!(f, "{}", a),

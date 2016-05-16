@@ -5,18 +5,23 @@ use std::cmp;
 use std::ops::{Add,Sub,Mul,Div,Neg};
 use std::fmt;
 
+/// A value with units
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct UnitValue {
+    /// Numerical value
     pub value: Value,
+    /// Unit
     pub unit: Unit,
 }
 
 impl From<OverflowError> for ArithmeticError {
+    /// Convert an OverflowError (from Rational) to a value's ArithmeticError
     fn from(_: OverflowError) -> ArithmeticError {
         ArithmeticError::OverflowError
     }
 }
 
+/// UnitValues can be compared only if units correspond
 impl PartialOrd for UnitValue {
     #[inline]
     fn partial_cmp(&self, other: &UnitValue) -> Option<cmp::Ordering> {
@@ -29,6 +34,7 @@ impl PartialOrd for UnitValue {
 }
 
 impl AsFloat for UnitValue {
+    /// Convert into a float (only valid for unitless quantities)
     #[inline]
     fn as_float(&self) -> f64 {
         if !self.unitless() {
@@ -38,6 +44,7 @@ impl AsFloat for UnitValue {
     }
 }
 
+// see value.rs for descriptions of these methods
 impl UnitValue {
     #[inline]
     pub fn from_input(f: f64) -> Result<UnitValue, ArithmeticError> {
@@ -61,6 +68,7 @@ impl UnitValue {
     pub fn is_zero(&self) -> bool {
         self.value.is_zero()
     }
+    /// zero values are always unitless; check for that
     #[inline]
     fn checked_uval(value: Value, unit: Unit) -> UnitValue {
         if value.is_zero() {
@@ -69,17 +77,20 @@ impl UnitValue {
             UnitValue {value: value, unit: unit}
         }
     }
+    /// is this value unitless
     #[inline]
     pub fn unitless(&self) -> bool {
         self.unit == Unit::zero()
     }
     pub fn add(&self, other: &UnitValue) -> Result<UnitValue, ArithmeticError> {
+        // check that units correspond
         if self.unit == other.unit {
             Ok(UnitValue::checked_uval(
                 try!((&self.value).add(&other.value)),
                 self.unit,
             ))
         } else {
+            // check for zero
             if self.is_zero() {
                 return Ok(other.clone())
             }
@@ -90,12 +101,14 @@ impl UnitValue {
         }
     }
     pub fn sub(&self, other: &UnitValue) -> Result<UnitValue, ArithmeticError> {
+        // check that units correspond
         if self.unit == other.unit {
             Ok(UnitValue::checked_uval(
                 try!((&self.value).sub(&other.value)),
                 self.unit,
             ))
         } else {
+            // check for zero
             if self.is_zero() {
                 return Ok(other.clone())
             }
@@ -120,11 +133,13 @@ impl UnitValue {
     pub fn pow(&self, other: &UnitValue) -> Result<UnitValue, ArithmeticError> {
         if other.unitless() {
             if self.unitless() {
+                // any number can be raised to any power if both unitless
                 Ok(UnitValue {
                     value: try!((&self.value).pow(&other.value)),
                     unit: Unit::zero(),
                 })
             } else {
+                // otherwise, only rational powers are allowed
                 match other.value.get_exact() {
                     Some(e) => Ok(UnitValue {
                         value: try!((&self.value).pow(&other.value)),
@@ -139,6 +154,7 @@ impl UnitValue {
     }
 }
 
+// arithmetic traits
 impl Add for UnitValue {
     type Output = UnitValue;
     fn add(self, other: UnitValue) -> UnitValue {
@@ -178,6 +194,7 @@ impl Neg for UnitValue {
 }
 
 impl fmt::Display for UnitValue {
+    /// Display value followed by unit (unless unitless)
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         if self.unitless() {
             write!(f, "{}", self.value)

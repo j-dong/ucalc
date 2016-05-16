@@ -4,18 +4,27 @@ use std::cmp;
 use std::ops::{Add,Sub,Mul,Neg};
 use std::fmt;
 
+/// A unit
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Unit {
+    /// exponent of meters
     pub m: Rational,
+    /// exponent of kilograms
     pub kg: Rational,
+    /// exponent of seconds
     pub s: Rational,
+    /// exponent of Amperes
     pub a: Rational,
+    /// exponent of Kelvins
     pub k: Rational,
+    /// exponent of candelas
     pub cd: Rational,
+    /// exponent of moles
     pub mol: Rational,
 }
 
 impl Unit {
+    /// zero unit (unitless)
     pub fn zero() -> Unit {
         Unit {
             m: Rational::zero(),
@@ -28,6 +37,7 @@ impl Unit {
         }
     }
     // may overflow
+    /// add two units (corresponds to multiplication of values)
     pub fn add(&self, other: &Unit) -> Result<Unit, OverflowError> {
         Ok(Unit {
             m: try!(self.m.add(&other.m)),
@@ -39,6 +49,7 @@ impl Unit {
             mol: try!(self.mol.add(&other.mol)),
         })
     }
+    /// subtract two units (corresponds to division of values)
     pub fn sub(&self, other: &Unit) -> Result<Unit, OverflowError> {
         Ok(Unit {
             m: try!(self.m.sub(&other.m)),
@@ -50,6 +61,7 @@ impl Unit {
             mol: try!(self.mol.sub(&other.mol)),
         })
     }
+    /// multiply a unit by a scalar (corresponds to exponentiation)
     pub fn mul(&self, other: &Rational) -> Result<Unit, OverflowError> {
         Ok(Unit {
             m: try!(self.m.mul(&other)),
@@ -63,6 +75,7 @@ impl Unit {
     }
 }
 
+// arithmetic traits
 impl Add for Unit {
     type Output = Unit;
     fn add(self, other: Unit) -> Unit {
@@ -84,6 +97,7 @@ impl Mul<Rational> for Unit {
     }
 }
 
+/// Negation (reciprocal)
 impl Neg for Unit {
     type Output = Unit;
     fn neg(self) -> Unit {

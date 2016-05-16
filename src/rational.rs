@@ -13,13 +13,18 @@ use std::fmt;
 ///   cause the denominator to be zero would return `Err(OverflowError)`.
 #[derive(Copy, Clone, Hash, Debug, PartialEq, Eq)]
 pub struct Rational {
+    /// Simplified numerator
     pub num: i32,
+    /// Simplified denominator
     pub den: u32,
 }
 
+/// An operation caused a value to overflow
 #[derive(Debug, PartialEq, Eq)]
 pub struct OverflowError;
 
+/// Exponentiation, but also check for integer overflow.
+// Uses exponentiation by squaring
 #[inline]
 fn checked_pow(mut base: i32, mut exp: u32) -> Result<i32, OverflowError> {
     let mut acc: i32 = 1;
@@ -91,10 +96,13 @@ fn gcd(mut m: i32, mut n: i32) -> i32 {
     (n << shift) * n_sign
 }
 
+/// A trait for values that can be checked so that it satisfies the Rational invariant against
+/// overflow.
 trait CheckableOverflow<T> {
     fn check_overflow(self) -> Result<T, OverflowError>;
 }
 
+/// Check numerator and denominator for overflow
 impl CheckableOverflow<Rational> for Rational {
     #[inline]
     fn check_overflow(self) -> Result<Rational, OverflowError> {
@@ -102,6 +110,7 @@ impl CheckableOverflow<Rational> for Rational {
     }
 }
 
+/// Check an unsigned int for overflow
 impl CheckableOverflow<u32> for u32 {
     #[inline]
     fn check_overflow(self) -> Result<u32, OverflowError> {
@@ -109,6 +118,7 @@ impl CheckableOverflow<u32> for u32 {
     }
 }
 
+/// Check a signed int for overflow
 impl CheckableOverflow<i32> for i32 {
     #[inline]
     fn check_overflow(self) -> Result<i32, OverflowError> {
@@ -116,6 +126,7 @@ impl CheckableOverflow<i32> for i32 {
     }
 }
 
+/// Check a result of a checkable type
 impl<T, U> CheckableOverflow<U> for Result<T, OverflowError> where T: CheckableOverflow<U> {
     #[inline]
     fn check_overflow(self) -> Result<U, OverflowError> {
@@ -123,6 +134,7 @@ impl<T, U> CheckableOverflow<U> for Result<T, OverflowError> where T: CheckableO
     }
 }
 
+/// Rationals are easily negated
 impl Neg for Rational {
     type Output = Rational;
     #[inline]
@@ -134,6 +146,7 @@ impl Neg for Rational {
     }
 }
 
+/// Format a rational as a string (integers are written as-is)
 impl fmt::Display for Rational {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         if self.den == 1 {
@@ -145,6 +158,7 @@ impl fmt::Display for Rational {
 }
 
 impl Rational {
+    /// Zero rational
     #[inline]
     pub fn zero() -> Rational {
         Rational {
@@ -152,6 +166,7 @@ impl Rational {
             den: 1,
         }
     }
+    /// Rational from an integer (need to check if it's outside Rational range)
     #[inline]
     pub fn from_integer(i: i32) -> Result<Rational, OverflowError> {
         Ok(Rational {
@@ -159,6 +174,7 @@ impl Rational {
             den: 1,
         })
     }
+    /// Create a Rational from numerator and denominator, and simplify
     pub fn new(num: i32, den: i32) -> Result<Rational, OverflowError> {
         if den == 0 {
             panic!("denominator = 0");
@@ -169,6 +185,7 @@ impl Rational {
             den: (den / gcd) as u32, // guaranteed to be positive
         }.check_overflow()
     }
+    /// Negate and return the result.
     #[inline]
     pub fn negate(&self) -> Rational {
         Rational {
@@ -176,6 +193,7 @@ impl Rational {
             den: self.den,
         }
     }
+    /// Find the reciprocal (1/0 returns OverflowError)
     #[inline]
     pub fn recip(&self) -> Result<Rational, OverflowError> {
         if self.num > 0 {
@@ -194,31 +212,38 @@ impl Rational {
             }
         }
     }
+    /// Check if integer (denominator = 1)
     #[inline]
     pub fn is_integer(&self) -> bool {
         self.den == 1
     }
+    /// Check if zero (numerator = 0)
     #[inline]
     pub fn is_zero(&self) -> bool {
         self.num == 0
     }
+    /// Check if it is one
     #[inline]
     pub fn is_one(&self) -> bool {
         self.num == 1 && self.den == 1
     }
+    /// Check if it is negative
     #[inline]
     pub fn is_negative(&self) -> bool {
         self.num < 0
     }
+    /// Take the 'exp'th power
     #[inline]
     pub fn pow(&self, exp: i32) -> Result<Rational, OverflowError> {
         if exp != 0 {
             if exp > 0 {
+                // power of both
                 Rational {
                     num: try!(checked_pow(self.num, exp as u32)),
                     den: try!(checked_pow(self.den as i32, exp as u32)) as u32,
                 }.check_overflow()
             } else {
+                // must check for this (-2^31 is valid, but not +2^31, so doing this would cause a panic.)
                 if exp != i32::min_value() {
                     try!(self.pow(-exp)).recip()
                 } else {
@@ -230,10 +255,13 @@ impl Rational {
                 }
             }
         } else {
+            // anything^0 = 1
             Ok(Rational { num: 1, den: 1 })
         }
     }
+    /// Multiply two rational numbers.
     pub fn mul(&self, other: &Rational) -> Result<Rational, OverflowError> {
+        // if possible, straight multiply then simplify
         match (self.num.checked_mul(other.num), (self.den as i32).checked_mul(other.den as i32)) {
             (Some(np), Some(dp)) => {
                 let gcd = gcd(np, dp); // guaranteed positive
@@ -242,6 +270,7 @@ impl Rational {
                     den: (dp / gcd) as u32,
                 }.check_overflow()
             },
+            // we overflowed; try to simplify first
             _ => {
                 // (a / b) * (c / d) =
                 // (a * b) / (c * d) =
@@ -258,14 +287,18 @@ impl Rational {
             },
         }
     }
+    /// Divide two rationals; a/b = a * (1/b)
     #[inline]
     pub fn div(&self, other: &Rational) -> Result<Rational, OverflowError> {
         self.mul(&try!(other.recip()))
     }
+    /// Add two rationals
     pub fn add(&self, other: &Rational) -> Result<Rational, OverflowError> {
+        // Find the gcd of denominators
         let dgcd = gcd(self.den as i32, other.den as i32) as u32;
         let a = self.den / dgcd;
         let b = other.den / dgcd;
+        // LCM = a * b / gcd(a, b); small shortcut
         let denom = try!(self.den.checked_mul(b).ok_or(OverflowError));
         // denom / self.den = b
         // denom / other.den = a
@@ -274,6 +307,7 @@ impl Rational {
             den: denom,
         }.check_overflow()
     }
+    /// Subtract two rationals; a - b = a + -b.
     #[inline]
     pub fn sub(&self, other: &Rational) -> Result<Rational, OverflowError> {
         self.add(&other.negate())
@@ -281,13 +315,17 @@ impl Rational {
 }
 
 impl Ord for Rational {
+    /// Compare two rational numbers.
     fn cmp(&self, other: &Rational) -> cmp::Ordering {
+        // if signs vary, just compare numerators (denominators are always positive)
         if self.is_negative() != other.is_negative() {
             return self.num.cmp(&other.num)
         }
+        // if both negative, reverse the comparison of the opposites.
         if self.is_negative() {
             return self.negate().cmp(&other.negate()).reverse()
         }
+        // try to cross-multiply
         match (self.num.checked_mul(other.den as i32), (self.den as i32).checked_mul(other.num)) {
             (Some(a), Some(b)) => a.cmp(&b),
             _ => {
@@ -298,6 +336,7 @@ impl Ord for Rational {
                 if self.num == other.num {
                     return other.den.cmp(&self.den)
                 }
+                // do partial fraction comparison (mixed number)
                 let (ai, af) = (self.num / self.den as i32, self.num % self.den as i32);
                 let (bi, bf) = (other.num / other.den as i32, other.num % other.den as i32);
                 if ai > bi {
@@ -313,27 +352,32 @@ impl Ord for Rational {
 }
 
 impl PartialOrd for Rational {
+    // all rationals can be compared
     fn partial_cmp(&self, other: &Rational) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
+/// Trait for things that can be converted to a float
 pub trait AsFloat {
     fn as_float(&self) -> f64;
 }
 
+// floats can
 impl AsFloat for f64 {
     fn as_float(&self) -> f64 {
         *self
     }
 }
 
+// so can rationals
 impl AsFloat for Rational {
     fn as_float(&self) -> f64 {
         self.num as f64 / self.den as f64
     }
 }
 
+/// Tests; self-explanatory
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +386,7 @@ mod tests {
     use std::fmt;
     use std::fmt::{Write, Display};
 
+    // create a rational number expected to be valid
     macro_rules! rat {
         ( $num:expr, $den:expr ) => (Rational::new($num, $den).unwrap())
     }
