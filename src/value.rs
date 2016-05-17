@@ -234,11 +234,6 @@ impl fmt::Display for Value {
 mod tests {
     use super::*;
     use rational::*;
-    use std::f64;
-    use std::cmp;
-    use std::cmp::Ordering;
-    use std::fmt;
-    use std::fmt::{Write, Display};
 
     #[test]
     fn test_as_float() {

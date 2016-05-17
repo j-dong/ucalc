@@ -12,16 +12,16 @@ use std::fmt;
 use std::io;
 use std::io::Write;
 
-mod rational;
-mod value;
-mod unit;
-mod uval;
-mod units;
+pub mod rational;
+pub mod value;
+pub mod unit;
+pub mod uval;
+pub mod units;
 
 use rational::AsFloat;
 
 /// A mathematical expression. Can be either known or unknown (at present, all expressions are known.)
-enum Expression {
+pub enum Expression {
     /// A known value (with unit).
     Value(uval::UnitValue),
     /// An error has occurred; errors propagate to all expressions in which it is involved.
@@ -46,14 +46,14 @@ enum Expression {
 }
 
 /// Types that can be converted to a value implement this trait.
-trait ToValue {
+pub trait ToValue {
     /// Convert this object to a value or return an error.
     fn to_value(&self) -> Result<uval::UnitValue, value::ArithmeticError>;
 }
 
 /// Make a Value Expression from a ToValue type
 #[inline]
-fn make_value<V: ToValue>(v: V) -> Expression {
+pub fn make_value<V: ToValue>(v: V) -> Expression {
     // Call Expression::Value on a successful result or call Expression::Error on error
     v.to_value().map(Expression::Value).unwrap_or_else(Expression::Error)
 }
@@ -62,7 +62,7 @@ fn make_value<V: ToValue>(v: V) -> Expression {
 /// numbers that can be handled exactly as fractions rather than
 /// floating-point inexact numbers.
 #[inline]
-fn input_value(v: f64) -> Expression {
+pub fn input_value(v: f64) -> Expression {
     // call the from_input method to convert rather than from_float
     make_value(uval::UnitValue::from_input(v))
 }
@@ -141,7 +141,7 @@ impl fmt::Display for Expression {
 impl Expression {
     /// Is this expression a known value
     #[inline]
-    fn is_known(&self) -> bool {
+    pub fn is_known(&self) -> bool {
         match self {
             &Expression::Value(_) => true,
             _ => false
@@ -149,7 +149,7 @@ impl Expression {
     }
     /// Is this expression an error
     #[inline]
-    fn is_error(&self) -> bool {
+    pub fn is_error(&self) -> bool {
         match self {
             &Expression::Error(_) => true,
             _ => false
@@ -157,7 +157,7 @@ impl Expression {
     }
     /// Extract a value or panic! (forcibly terminates the thread)
     #[inline]
-    fn extract_value(&self) -> uval::UnitValue {
+    pub fn extract_value(&self) -> uval::UnitValue {
         match self {
             &Expression::Value(a) => a,
             _ => panic!("extract value of unknown")
@@ -165,7 +165,7 @@ impl Expression {
     }
     /// Extract a floating-point value or panic!
     #[inline]
-    fn extract_float(&self) -> f64 {
+    pub fn extract_float(&self) -> f64 {
         match self {
             &Expression::Value(a) => a.as_float(),
             _ => panic!("extract value of unknown")
@@ -174,7 +174,7 @@ impl Expression {
 }
 
 /// Lookup a unary function by name (for convenience)
-fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
+pub fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
     match res {
         b"sin" => Some(Box::new(f64::sin)),
         b"cos" => Some(Box::new(f64::cos)),
@@ -184,7 +184,7 @@ fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
 }
 
 /// Get a function by name (including multi-argument functions)
-fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
+pub fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
     // unary functions first
     if let Some(f) = get_unary_function(res) {
         return Some(Box::new(move |a: Vec<f64>| f(a[0])))
@@ -197,7 +197,7 @@ fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
 }
 
 /// A parenthetical expression
-named!(parens<Expression>, alt!(
+named!(pub parens<Expression>, alt!(
     // either an expression in parentheses
         delimited!(char!('(')
       , preceded!(opt!(multispace), expr)
@@ -244,7 +244,7 @@ fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
 named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
 
 /// A number is one of the two number forms above
-named!(number<f64>, map_res!(map_res!(
+named!(pub number<f64>, map_res!(map_res!(
             alt!(recognize_number1 => {stringify_u8}
                | recognize_number2 => {prepend_zero}),
             // Remove underscores
@@ -255,7 +255,7 @@ named!(number<f64>, map_res!(map_res!(
             |a: String| a.parse()));
 
 /// Look up a numerical constant (unitless)
-fn get_numerical_constant(res: &[u8]) -> Option<f64> {
+pub fn get_numerical_constant(res: &[u8]) -> Option<f64> {
     match &res {
         &b"e" => Some(std::f64::consts::E),
         &b"pi" => Some(std::f64::consts::PI),
@@ -264,7 +264,7 @@ fn get_numerical_constant(res: &[u8]) -> Option<f64> {
 }
 
 /// Look up a united value
-fn get_unit(res: &[u8]) -> Option<uval::UnitValue> {
+pub fn get_unit(res: &[u8]) -> Option<uval::UnitValue> {
     match str::from_utf8(res) {
         Ok(a) => units::get(a),
         Err(_) => None,
@@ -273,20 +273,20 @@ fn get_unit(res: &[u8]) -> Option<uval::UnitValue> {
 
 /// A numerical constant consists of only letters
 #[inline]
-named!(num_const<f64>, map_opt!(alpha, get_numerical_constant));
+named!(pub num_const<f64>, map_opt!(alpha, get_numerical_constant));
 /// A united constant may contains numbers and underscores
 #[inline]
-named!(unit_const<uval::UnitValue>, map_opt!(recognize!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), get_unit));
+named!(pub unit_const<uval::UnitValue>, map_opt!(recognize!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), get_unit));
 
 /// The innermost level is either parentheticals, numbers, or constants
-named!(atom<Expression>, alt!(parens
+named!(pub atom<Expression>, alt!(parens
                             | number => {input_value}
                             | num_const => {make_value}
                             | unit_const => {Expression::Value}));
 
 /// Implied multiplication without spaces has the highest precedence
 // e.g. 1/2pi => 1/(2pi), but 1/2 pi => pi/2
-named!(imul<Expression>, chain!(
+named!(pub imul<Expression>, chain!(
        first: atom
      ~ others: many0!(atom), ||
     others.into_iter().fold(first,
@@ -295,7 +295,7 @@ named!(imul<Expression>, chain!(
 ));
 
 /// A unary value such as + and -.
-named!(unary<Expression>, alt!(exp
+named!(pub unary<Expression>, alt!(exp
                              | chain!(op: chain!(
                                      o: alt!(char!('+') | char!('-'))
                                    ~ multispace?, || o)
@@ -308,7 +308,7 @@ named!(unary<Expression>, alt!(exp
 })));
 
 /// Exponentiation (right associative)
-named!(exp<Expression>, chain!(
+named!(pub exp<Expression>, chain!(
        lhs: imul
      ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')),
                       preceded!(opt!(multispace), unary))?, ||
@@ -320,7 +320,7 @@ named!(exp<Expression>, chain!(
 ));
 
 /// A single factor-term with * or / (or whitespace, which is treated as multiplication)
-named!(facterm<(char, Expression)>,
+named!(pub facterm<(char, Expression)>,
         tuple!(alt!(
                preceded!(opt!(multispace), char!('*'))
              | preceded!(opt!(multispace), char!('/'))
@@ -331,7 +331,7 @@ named!(facterm<(char, Expression)>,
                preceded!(opt!(multispace), unary)));
 
 /// A thing followed by things with operators
-named!(fac<Expression>,
+named!(pub fac<Expression>,
         chain!(first: unary
              ~ others: many0!(facterm), ||
     others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
@@ -343,7 +343,7 @@ named!(fac<Expression>,
 ));
 
 /// An expression consists of one factor followed by more terms preceded by + or -.
-named!(expr<Expression>,
+named!(pub expr<Expression>,
         chain!(first: fac
              ~ others: many0!(tuple!(
                        preceded!(opt!(multispace),
@@ -358,7 +358,7 @@ named!(expr<Expression>,
 ));
 
 /// User input has a ? appended so that it does not try to match things after the input (nom yields an Incomplete)
-named!(input<Expression>, chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res}));
+named!(pub input<Expression>, chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res}));
 
 /// Simplify 1 part of an expression
 fn simplify1(expr: Expression) -> Expression {
@@ -395,7 +395,7 @@ fn simplify1(expr: Expression) -> Expression {
         /// Call a function by extracting the floating-point values of the arguments
         E::Call(ref f, ref a) if all_known(a) => make_value(f(a.iter().map(Expression::extract_float).collect())),
         /// Forward the first error
-        E::Call(ref f, ref a) if any_error(a) => match a.iter().find(|e| e.is_error()).expect("no error found") {
+        E::Call(_, ref a) if any_error(a) => match a.iter().find(|e| e.is_error()).expect("no error found") {
             &E::Error(a) => E::Error(a),
             _ => panic!("not actually an error")
         },
@@ -403,116 +403,121 @@ fn simplify1(expr: Expression) -> Expression {
     }
 }
 
-/// Macro used for testing an expression against a known value
-macro_rules! test_expr {
-    ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], make_value($v))));
-}
-/// Macro used for approximately equal
-macro_rules! test_approx {
-    ( $x:expr, $v: expr) => ({
-        let res = input(concat!($x, "?").as_bytes());
-        match &res {
-            &IResult::Done(_, Expression::Value(val)) => {
-                assert_eq!(res, IResult::Done(&b""[..], Expression::Value(val)));
-                assert!((val.as_float() - $v).abs() < 1e-6)
-            },
-            _ => panic!("input not consumed: {:?}", res)
-        }});
-}
-/// An expression should not parse correctly.
-macro_rules! fail_expr {
-    ( $x: expr ) => (match input(concat!($x, "?").as_bytes()) { IResult::Done(_, _) => panic!("should have failed"), _ => () })
-}
-
 // the following tests are self-explanatory.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nom::*;
+    use std;
+    use rational::AsFloat;
+    /// Macro used for testing an expression against a known value
+    macro_rules! test_expr {
+        ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], make_value($v))));
+    }
+    /// Macro used for approximately equal
+    macro_rules! test_approx {
+        ( $x:expr, $v: expr) => ({
+            let res = input(concat!($x, "?").as_bytes());
+            match &res {
+                &IResult::Done(_, Expression::Value(val)) => {
+                    assert_eq!(res, IResult::Done(&b""[..], Expression::Value(val)));
+                    assert!((val.as_float() - $v).abs() < 1e-6)
+                },
+                _ => panic!("input not consumed: {:?}", res)
+            }});
+    }
+    /// An expression should not parse correctly.
+    macro_rules! fail_expr {
+        ( $x: expr ) => (match input(concat!($x, "?").as_bytes()) { IResult::Done(_, _) => panic!("should have failed"), _ => () })
+    }
+    #[test]
+    fn test_exponents() {
+        test_expr!("2^1^5", 2.0);
+    }
 
-#[test]
-fn test_exponents() {
-    test_expr!("2^1^5", 2.0);
-}
+    #[test]
+    fn test_muldiv() {
+        test_expr!("2*3", 6.0);
+        test_expr!("3/2", 1.5);
+        test_expr!("3/2*4", 6.0);
+        test_expr!("2^2*3", 12.0);
+        test_expr!("2 2 2 ", 8.0);
+    }
 
-#[test]
-fn test_muldiv() {
-    test_expr!("2*3", 6.0);
-    test_expr!("3/2", 1.5);
-    test_expr!("3/2*4", 6.0);
-    test_expr!("2^2*3", 12.0);
-    test_expr!("2 2 2 ", 8.0);
-}
+    #[test]
+    fn test_implied_mul() {
+        test_expr!("1/2(4)", 0.125);
+        test_expr!("1/2 (4)", 2.0);
+        test_expr!("1(2)3(4)5(6)7(8)9(10)", 3628800.0)
+    }
 
-#[test]
-fn test_implied_mul() {
-    test_expr!("1/2(4)", 0.125);
-    test_expr!("1/2 (4)", 2.0);
-    test_expr!("1(2)3(4)5(6)7(8)9(10)", 3628800.0)
-}
+    #[test]
+    fn test_addsub() {
+        test_expr!("1+1", 2.0);
+        test_expr!("3-2", 1.0);
+        test_expr!("3-2+3", 4.0);
+        test_expr!("2^3*4-5", 27.0);
+    }
 
-#[test]
-fn test_addsub() {
-    test_expr!("1+1", 2.0);
-    test_expr!("3-2", 1.0);
-    test_expr!("3-2+3", 4.0);
-    test_expr!("2^3*4-5", 27.0);
-}
+    #[test]
+    fn test_whitespace() {
+        test_expr!(" (2^39)* 122/2 + 80 -1023 ", 33535104646225.0);
+        test_expr!("(    2     ^   1   )   * 5    / 2 +   3    - 5", 3.0);
+    }
 
-#[test]
-fn test_whitespace() {
-    test_expr!(" (2^39)* 122/2 + 80 -1023 ", 33535104646225.0);
-    test_expr!("(    2     ^   1   )   * 5    / 2 +   3    - 5", 3.0);
-}
+    #[test]
+    fn test_huge() {
+        test_expr!("(((17 - 9 - 14) / 1 + 13 * 15) / 5 / 8 - 18) / 11 * 15 * 17 / (16 / 5 + 10 * 16 / ((5 / 14 - 3 - 4 - 6) * (9 * 7 / 2 - 7 - 16)))", -179.844926355302559466636533137465393525057912876433696);
+    }
 
-#[test]
-fn test_huge() {
-    test_expr!("(((17 - 9 - 14) / 1 + 13 * 15) / 5 / 8 - 18) / 11 * 15 * 17 / (16 / 5 + 10 * 16 / ((5 / 14 - 3 - 4 - 6) * (9 * 7 / 2 - 7 - 16)))", -179.844926355302559466636533137465393525057912876433696);
-}
+    #[test]
+    fn test_unary() {
+        test_expr!("1+-1(2)", -1.0);
+        test_expr!("1/2-2", -1.5);
+        test_expr!("1+1", 2.0);
+        test_expr!("1 + 1", 2.0);
+        test_expr!("1+1/-(3-2)", 0.0);
+        test_expr!("-2^2", -4.0);
+        test_expr!("2^-2", 0.25);
+        test_expr!("-2(5)", -10.0);
+    }
 
-#[test]
-fn test_unary() {
-    test_expr!("1+-1(2)", -1.0);
-    test_expr!("1/2-2", -1.5);
-    test_expr!("1+1", 2.0);
-    test_expr!("1 + 1", 2.0);
-    test_expr!("1+1/-(3-2)", 0.0);
-    test_expr!("-2^2", -4.0);
-    test_expr!("2^-2", 0.25);
-    test_expr!("-2(5)", -10.0);
-}
+    #[test]
+    fn test_thomas() {
+        test_expr!("1+1", 2.0);
+        test_expr!("2^(3*2-4)-4", 0.0);
+    }
 
-#[test]
-fn test_thomas() {
-    test_expr!("1+1", 2.0);
-    test_expr!("2^(3*2-4)-4", 0.0);
-}
+    #[test]
+    fn test_floating() {
+        test_expr!("5", 5.0);
+        test_expr!("2.3e2", 230.0);
+        test_expr!("5e-2", 0.05);
+        test_expr!("8_230_999", 8_230_999.0);
+        fail_expr!("_");
+        test_expr!(".2", 0.2);
+        // Rust reference examples
+        test_expr!("123.0", 123.0f64);
+        test_expr!("0.1", 0.1f64);
+        test_expr!("12E+99", 12E+99_f64);
+        test_expr!("2.", 2.);
+    }
 
-#[test]
-fn test_floating() {
-    test_expr!("5", 5.0);
-    test_expr!("2.3e2", 230.0);
-    test_expr!("5e-2", 0.05);
-    test_expr!("8_230_999", 8_230_999.0);
-    fail_expr!("_");
-    test_expr!(".2", 0.2);
-    // Rust reference examples
-    test_expr!("123.0", 123.0f64);
-    test_expr!("0.1", 0.1f64);
-    test_expr!("12E+99", 12E+99_f64);
-    test_expr!("2.", 2.);
-}
+    #[test]
+    fn test_num_const() {
+        test_expr!("pi", std::f64::consts::PI);
+        test_expr!("e", std::f64::consts::E);
+    }
 
-#[test]
-fn test_num_const() {
-    test_expr!("pi", std::f64::consts::PI);
-    test_expr!("e", std::f64::consts::E);
-}
-
-#[test]
-fn test_function() {
-    test_approx!("sin(pi/6)", 0.5);
-    test_approx!("atan2(1, 1)", std::f64::consts::FRAC_PI_4);
+    #[test]
+    fn test_function() {
+        test_approx!("sin(pi/6)", 0.5);
+        test_approx!("atan2(1, 1)", std::f64::consts::FRAC_PI_4);
+    }
 }
 
 /// Main function; we read until we find "quit"
-fn main() {
+pub fn main() {
     // REPL
     loop {
         let mut line = String::new();

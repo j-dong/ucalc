@@ -1,8 +1,6 @@
 use rational::*;
 
-use std::cmp;
 use std::ops::{Add,Sub,Mul,Neg};
-use std::fmt;
 
 /// A unit
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

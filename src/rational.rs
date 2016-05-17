@@ -381,10 +381,8 @@ impl AsFloat for Rational {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cmp;
     use std::cmp::Ordering;
-    use std::fmt;
-    use std::fmt::{Write, Display};
+    use std::fmt::Write;
 
     // create a rational number expected to be valid
     macro_rules! rat {
@@ -458,7 +456,7 @@ mod tests {
     fn test_display() {
         fn test_str(a: Rational, b: &str) -> () {
             let mut s = String::new();
-            write!(s, "{}", a);
+            write!(s, "{}", a).unwrap();
             assert_eq!(s, b)
         }
         test_str(rat!(1, 1), "1");

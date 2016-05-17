@@ -206,7 +206,7 @@ macro_rules! fmt_unit {
                 $num.push_str($name);
                 $num.push(' ');
             } else if !$u.is_zero() {
-                write!($num, "{}^{} ", $name, $u);
+                write!($num, "{}^{} ", $name, $u).unwrap();
             }
         } else {
             let neg = -$u;
@@ -214,7 +214,7 @@ macro_rules! fmt_unit {
                 $den.push_str($name);
                 $den.push(' ');
             } else if !neg.is_zero() {
-                write!($den, "{}^{} ", $name, neg);
+                write!($den, "{}^{} ", $name, neg).unwrap();
             }
         }
     }
