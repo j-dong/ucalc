@@ -1,3 +1,5 @@
+//! Value with units. Ties together unit and value.
+
 use unit::*;
 use value::*;
 use rational::{OverflowError,AsFloat};

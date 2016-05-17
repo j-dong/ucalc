@@ -1,3 +1,5 @@
+//! Rational number module.
+
 use std::ops::Neg;
 use std::cmp;
 use std::cmp::Ord;

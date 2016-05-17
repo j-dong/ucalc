@@ -1,3 +1,5 @@
+//! Value module. Can be exact or inexact.
+
 use rational::*;
 
 use std::cmp;

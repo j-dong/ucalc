@@ -1,3 +1,5 @@
+//! List of units and constants
+
 use unit::Unit;
 use uval::UnitValue;
 use value::Value;

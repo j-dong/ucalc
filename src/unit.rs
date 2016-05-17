@@ -1,8 +1,10 @@
+//! Unit module. Contains a Unit struct that can be used to represent the dimensions of a unit.
+
 use rational::*;
 
 use std::ops::{Add,Sub,Mul,Neg};
 
-/// A unit
+/// A unit struct, representing unit dimensions.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Unit {
     /// exponent of meters
