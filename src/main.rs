@@ -179,6 +179,8 @@ impl Expression {
     }
 }
 
+// TODO: move functions into function module
+
 /// Lookup a unary function by name (for convenience)
 pub fn get_unary_function(res: &[u8]) -> Option<Box<Fn(f64) -> f64>> {
     match res {
@@ -202,169 +204,224 @@ pub fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
     }
 }
 
-/// A parenthetical expression
-named!(pub parens<Expression>, alt!(
-    // either an expression in parentheses
-        delimited!(char!('(')
-      , preceded!(opt!(multispace), expr)
-      , preceded!(opt!(multispace), char!(')')))
-    // or a function name followed by parentheses and comma-separated arguments
-      | chain!(
-          func: map_opt!(alphanumeric, get_function)
-        ~ args: delimited!(char!('('), preceded!(opt!(multispace), separated_nonempty_list!(delimited!(opt!(multispace), char!(','), opt!(multispace)), expr)), preceded!(opt!(multispace), char!(')'))),
-          || simplify1(Expression::Call(func, args))
-      )));
-
-/// Recognize integers and numbers with digits on the left side of decimal point (e.g. 57, 2.3)
-#[inline]
-named!(recognize_number1<&[u8]>, recognize!(
-        chain!(decimal
-             ~ preceded!(char!('.'), opt!(decimal))?
-             ~ preceded!(one_of!("eE"),
-                   preceded!(opt!(one_of!("+-")), decimal))?,
-             || ())));
-/// Recognize numbers with a decimal point followed by digits (e.g. .2, .7)
-#[inline]
-named!(recognize_number2<&[u8]>, recognize!(
-        chain!(char!('.')
-             ~ decimal
-             ~ preceded!(one_of!("eE"),
-                   preceded!(opt!(one_of!("+-")), decimal))?,
-             || ())));
-/// Convert a [u8] (char array) to a String
-#[inline]
-fn stringify_u8(res: &[u8]) -> Result<String, str::Utf8Error> {
-    Ok(try!(str::from_utf8(res)).to_owned())
-}
-/// Convert a [u8] to a String and add a 0 at the front (.2 -> 0.2)
-#[inline]
-fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
-    let mut s = try!(str::from_utf8(res)).to_owned();
-    s.insert(0, '0');
-    Ok(s)
+/// Calculator state
+pub struct Calculator {
+    pub warnings: Vec<String>,
+    pub result: Result<Expression, value::ArithmeticError>,
 }
 
-/// A decimal value (including underscores); underscores are removed
-/// An underscore can be used to provide clarity, e.g. 1_200 for 1,200
-#[inline]
-named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
+/// Errors during calculation
+#[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
+pub enum CalculatorError {
+    /// Caused by division by zero
+    DivideByZeroError,
+    /// Caused by an invalid argument
+    DomainError,
+    /// Caused by overflow
+    OverflowError,
+    /// Incompatible units or invalid use of units
+    UnitError,
+    /// Syntax Error
+    SyntaxError,
+}
 
-/// A number is one of the two number forms above
-named!(pub number<f64>, map_res!(map_res!(
-            alt!(recognize_number1 => {stringify_u8}
-               | recognize_number2 => {prepend_zero}),
-            // Remove underscores
-            |a: Result<String, str::Utf8Error>|
-                Ok(try!(a).replace('_', ""))
-                as Result<String, str::Utf8Error>),
-            // then interpret as a float
-            |a: String| a.parse()));
-
-/// Look up a numerical constant (unitless)
-pub fn get_numerical_constant(res: &[u8]) -> Option<f64> {
-    match &res {
-        &b"e" => Some(std::f64::consts::E),
-        &b"pi" => Some(std::f64::consts::PI),
-        _ => None
+impl From<value::ArithmeticError> for CalculatorError {
+    fn from(e: value::ArithmeticError) -> CalculatorError {
+        match e {
+            value::ArithmeticError::DivideByZeroError => CalculatorError::DivideByZeroError,
+            value::ArithmeticError::DomainError => CalculatorError::DomainError,
+            value::ArithmeticError::OverflowError => CalculatorError::OverflowError,
+            value::ArithmeticError::UnitError => CalculatorError::UnitError,
+        }
     }
 }
 
-/// Look up a united value
-pub fn get_unit(res: &[u8]) -> Option<uval::UnitValue> {
-    match str::from_utf8(res) {
-        Ok(a) => units::get(a),
-        Err(_) => None,
+impl Calculator {
+    fn new() -> Calculator {
+        Calculator {
+            warnings: Vec::new(),
+            result: Err(CalculatorError::SyntaxError),
+        }
     }
+
+    fn calculate(input: &mut String) -> Calculator {
+        let mut calc = Calculator::new();
+        input.push('?');
+        match calc.input(input.as_bytes()) {
+            IResult::Done(_, val) => calc.result = {
+                match &val {
+                    &Expression::Error(a) => Err(a),
+                    _ => val,
+                }
+            },
+            _ => Err(CalculatorError::SyntaxError),
+        }
+    }
+
+    /// A parenthetical expression
+    method!(pub parens<Calculator, Expression>, self, alt!(
+        // either an expression in parentheses
+            delimited!(char!('(')
+          , preceded!(opt!(multispace), call_m!(self.expr))
+          , preceded!(opt!(multispace), char!(')')))
+        // or a function name followed by parentheses and comma-separated arguments
+          | chain!(
+              func: map_opt!(alphanumeric, get_function)
+            ~ args: delimited!(char!('('), preceded!(opt!(multispace), separated_nonempty_list!(delimited!(opt!(multispace), char!(','), opt!(multispace)), self.expr)), preceded!(opt!(multispace), char!(')'))),
+              || simplify1(Expression::Call(func, args))
+          )));
+
+    /// Recognize integers and numbers with digits on the left side of decimal point (e.g. 57, 2.3)
+    #[inline]
+    method!(recognize_number1<Calculator, &[u8]>, self, recognize!(
+            chain!(call!(Calculator::decimal)
+                 ~ preceded!(char!('.'), opt!(call!(Calculator::decimal)))?
+                 ~ preceded!(one_of!("eE"),
+                       preceded!(opt!(one_of!("+-")), call!(Calculator::decimal)))?,
+                 || ())));
+    /// Recognize numbers with a decimal point followed by digits (e.g. .2, .7)
+    #[inline]
+    method!(recognize_number2<Calculator, &[u8]>, self, recognize!(
+            chain!(char!('.')
+                 ~ call!(Calculator::decimal)
+                 ~ preceded!(one_of!("eE"),
+                       preceded!(opt!(one_of!("+-")), call!(Calculator::decimal)))?,
+                 || ())));
+    /// Convert a [u8] (char array) to a String
+    #[inline]
+    fn stringify_u8(res: &[u8]) -> Result<String, str::Utf8Error> {
+        Ok(try!(str::from_utf8(res)).to_owned())
+    }
+    /// Convert a [u8] to a String and add a 0 at the front (.2 -> 0.2)
+    #[inline]
+    fn prepend_zero(res: &[u8]) -> Result<String, str::Utf8Error> {
+        let mut s = try!(str::from_utf8(res)).to_owned();
+        s.insert(0, '0');
+        Ok(s)
+    }
+
+    /// A decimal value (including underscores); underscores are removed
+    /// An underscore can be used to provide clarity, e.g. 1_200 for 1,200
+    #[inline]
+    named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
+
+    /// A number is one of the two number forms above
+    method!(pub number<Calculator, f64>, self, map_res!(map_res!(
+                alt!(call_m!(self.recognize_number1) => {Calculator::stringify_u8}
+                   | call_m!(self.recognize_number2) => {Calculator::prepend_zero}),
+                // Remove underscores
+                |a: Result<String, str::Utf8Error>|
+                    Ok(try!(a).replace('_', ""))
+                    as Result<String, str::Utf8Error>),
+                // then interpret as a float
+                |a: String| a.parse()));
+
+    /// Look up a numerical constant (unitless)
+    pub fn get_numerical_constant(&self, res: &[u8]) -> Option<f64> {
+        match &res {
+            &b"e" => Some(std::f64::consts::E),
+            &b"pi" => Some(std::f64::consts::PI),
+            _ => None
+        }
+    }
+
+    /// Look up a united value
+    pub fn get_unit(&self, res: &[u8]) -> Option<uval::UnitValue> {
+        match str::from_utf8(res) {
+            Ok(a) => units::get(a),
+            Err(_) => None,
+        }
+    }
+
+    /// A numerical constant consists of only letters
+    #[inline]
+    method!(pub num_const<Calculator, f64>, self, map_opt!(alpha, self.get_numerical_constant));
+    /// A united constant may contains numbers and underscores
+    #[inline]
+    method!(pub unit_const<Calculator, uval::UnitValue>, self, map_opt!(recognize!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), self.get_unit));
+
+    /// The innermost level is either parentheticals, numbers, or constants
+    method!(pub atom<Calculator, Expression>, self, alt!(call_m!(self.parens)
+                                                      | call_m!(self.number) => {input_value}
+                                                      | call_m!(self.num_const) => {make_value}
+                                                      | call_m!(self.unit_const) => {Expression::Value}));
+
+    /// Implied multiplication without spaces has the highest precedence
+    // e.g. 1/2pi => 1/(2pi), but 1/2 pi => pi/2
+    method!(pub imul<Calculator, Expression>, self, chain!(
+           first: call_m!(self.atom)
+         ~ others: many0!(call_m!(self.atom)), ||
+        others.into_iter().fold(first,
+            |lhs, rhs| self.simplify1(
+                         Expression::Mul(Box::new(lhs), Box::new(rhs))))
+    ));
+
+    /// A unary value such as + and -.
+    method!(pub unary<Calculator, Expression>, self, alt!(call_m!(self.exp)
+                                 | chain!(op: chain!(
+                                         o: alt!(char!('+') | char!('-'))
+                                       ~ multispace?, || o)
+                                 ~ val: call_m!(self.unary), ||{
+        match op {
+            '+' => val,
+            '-' => self.simplify1(Expression::Neg(Box::new(val))),
+            _ => val,
+        }
+    })));
+
+    /// Exponentiation (right associative)
+    method!(pub exp<Calculator, Expression>, self, chain!(
+           lhs: call_m!(self.imul)
+         ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')),
+                          preceded!(opt!(multispace), call_m!(self.unary)))?, ||
+        match (lhs, rhs) {
+            (lhs, None) => lhs,
+            (lhs, Some(b))
+                => self.simplify1(Expression::Exp(Box::new(lhs), Box::new(b))),
+        }
+    ));
+
+    /// A single factor-term with * or / (or whitespace, which is treated as multiplication)
+    method!(pub facterm<Calculator, (char, Expression)>, self,
+            tuple!(alt!(
+                   preceded!(opt!(multispace), char!('*'))
+                 | preceded!(opt!(multispace), char!('/'))
+                 | value!('*',
+                          preceded!(multispace,
+                                    error!(nom::ErrorKind::NoneOf,
+                                           peek!(none_of!("+-")))))),
+                   preceded!(opt!(multispace), call_m!(self.unary))));
+
+    /// A thing followed by things with operators
+    method!(pub fac<Calculator, Expression>, self,
+            chain!(first: call_m!(self.unary)
+                 ~ others: many0!(call_m!(self.facterm)), ||
+        others.into_iter().fold(first, |lhs, (op, rhs)| self.simplify1(
+                match op {
+                    '*' => Expression::Mul(Box::new(lhs), Box::new(rhs)),
+                    '/' => Expression::Div(Box::new(lhs), Box::new(rhs)),
+                    _   => Expression::Mul(Box::new(lhs), Box::new(rhs))
+                }))
+    ));
+
+    /// An expression consists of one factor followed by more terms preceded by + or -.
+    method!(pub expr<Calculator, Expression>, self,
+            chain!(first: call_m!(self.fac)
+                 ~ others: many0!(tuple!(
+                           preceded!(opt!(multispace),
+                               alt!(char!('+') | char!('-'))),
+                               preceded!(opt!(multispace), call_m!(self.fac)))), ||
+        others.into_iter().fold(first, |lhs, (op, rhs)| self.simplify1(
+                match op {
+                    '+' => Expression::Add(Box::new(lhs), Box::new(rhs)),
+                    '-' => Expression::Sub(Box::new(lhs), Box::new(rhs)),
+                    _   => Expression::Add(Box::new(lhs), Box::new(rhs))
+                }))
+    ));
+
+    /// User input has a ? appended so that it does not try to match things after the input (nom yields an Incomplete)
+    method!(pub input<Calculator, Expression>, self, chain!(opt!(multispace) ~ res: call_m!(self.expr) ~ opt!(multispace) ~ char!('?'), ||{res}));
 }
-
-/// A numerical constant consists of only letters
-#[inline]
-named!(pub num_const<f64>, map_opt!(alpha, get_numerical_constant));
-/// A united constant may contains numbers and underscores
-#[inline]
-named!(pub unit_const<uval::UnitValue>, map_opt!(recognize!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), get_unit));
-
-/// The innermost level is either parentheticals, numbers, or constants
-named!(pub atom<Expression>, alt!(parens
-                            | number => {input_value}
-                            | num_const => {make_value}
-                            | unit_const => {Expression::Value}));
-
-/// Implied multiplication without spaces has the highest precedence
-// e.g. 1/2pi => 1/(2pi), but 1/2 pi => pi/2
-named!(pub imul<Expression>, chain!(
-       first: atom
-     ~ others: many0!(atom), ||
-    others.into_iter().fold(first,
-        |lhs, rhs| simplify1(
-                     Expression::Mul(Box::new(lhs), Box::new(rhs))))
-));
-
-/// A unary value such as + and -.
-named!(pub unary<Expression>, alt!(exp
-                             | chain!(op: chain!(
-                                     o: alt!(char!('+') | char!('-'))
-                                   ~ multispace?, || o)
-                             ~ val: unary, ||{
-    match op {
-        '+' => val,
-        '-' => simplify1(Expression::Neg(Box::new(val))),
-        _ => val,
-    }
-})));
-
-/// Exponentiation (right associative)
-named!(pub exp<Expression>, chain!(
-       lhs: imul
-     ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')),
-                      preceded!(opt!(multispace), unary))?, ||
-    match (lhs, rhs) {
-        (lhs, None) => lhs,
-        (lhs, Some(b))
-            => simplify1(Expression::Exp(Box::new(lhs), Box::new(b))),
-    }
-));
-
-/// A single factor-term with * or / (or whitespace, which is treated as multiplication)
-named!(pub facterm<(char, Expression)>,
-        tuple!(alt!(
-               preceded!(opt!(multispace), char!('*'))
-             | preceded!(opt!(multispace), char!('/'))
-             | value!('*',
-                      preceded!(multispace,
-                                error!(nom::ErrorKind::NoneOf,
-                                       peek!(none_of!("+-")))))),
-               preceded!(opt!(multispace), unary)));
-
-/// A thing followed by things with operators
-named!(pub fac<Expression>,
-        chain!(first: unary
-             ~ others: many0!(facterm), ||
-    others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
-            match op {
-                '*' => Expression::Mul(Box::new(lhs), Box::new(rhs)),
-                '/' => Expression::Div(Box::new(lhs), Box::new(rhs)),
-                _   => Expression::Mul(Box::new(lhs), Box::new(rhs))
-            }))
-));
-
-/// An expression consists of one factor followed by more terms preceded by + or -.
-named!(pub expr<Expression>,
-        chain!(first: fac
-             ~ others: many0!(tuple!(
-                       preceded!(opt!(multispace),
-                           alt!(char!('+') | char!('-'))),
-                           preceded!(opt!(multispace), fac))), ||
-    others.into_iter().fold(first, |lhs, (op, rhs)| simplify1(
-            match op {
-                '+' => Expression::Add(Box::new(lhs), Box::new(rhs)),
-                '-' => Expression::Sub(Box::new(lhs), Box::new(rhs)),
-                _   => Expression::Add(Box::new(lhs), Box::new(rhs))
-            }))
-));
-
-/// User input has a ? appended so that it does not try to match things after the input (nom yields an Incomplete)
-named!(pub input<Expression>, chain!(opt!(multispace) ~ res: expr ~ opt!(multispace) ~ char!('?'), ||{res}));
 
 /// Simplify 1 part of an expression
 fn simplify1(expr: Expression) -> Expression {
@@ -418,14 +475,14 @@ mod tests {
     use rational::AsFloat;
     /// Macro used for testing an expression against a known value
     macro_rules! test_expr {
-        ( $x:expr, $v: expr) => (assert_eq!(input(concat!($x, "?").as_bytes()), IResult::Done(&b""[..], make_value($v))));
+        ( $x:expr, $v: expr) => (assert_eq!(Calculator::calculate($x.as_bytes()), Ok(IResult::Done(&b""[..], make_value($v)))));
     }
     /// Macro used for approximately equal
     macro_rules! test_approx {
         ( $x:expr, $v: expr) => ({
-            let res = input(concat!($x, "?").as_bytes());
+            let res = Calculator::calculate($x.as_bytes());
             match &res {
-                &IResult::Done(_, Expression::Value(val)) => {
+                &Ok(IResult::Done(_, Expression::Value(val))) => {
                     assert_eq!(res, IResult::Done(&b""[..], Expression::Value(val)));
                     assert!((val.as_float() - $v).abs() < 1e-6)
                 },
