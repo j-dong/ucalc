@@ -207,7 +207,7 @@ pub fn get_function(res: &[u8]) -> Option<Box<Fn(Vec<f64>) -> f64>> {
 /// Calculator state
 pub struct Calculator {
     pub warnings: Vec<String>,
-    pub result: Result<Expression, value::ArithmeticError>,
+    pub result: Result<Expression, CalculatorError>,
 }
 
 /// Errors during calculation
@@ -236,6 +236,47 @@ impl From<value::ArithmeticError> for CalculatorError {
     }
 }
 
+/// Replacement for recognize! since it doesn't work with methods
+#[doc(hidden)]
+macro_rules! recognize2 (
+    ($i:expr, $submac:ident!( $($args:tt)* )) => (
+        {
+            use nom::HexDisplay;
+            match $submac!($i, $($args)*) {
+                nom::IResult::Done(i,_)     => {
+                    let index = ($i).offset(i);
+                    nom::IResult::Done(i, &($i)[..index])
+                },
+                nom::IResult::Error(e)      => nom::IResult::Error(e),
+                nom::IResult::Incomplete(i) => nom::IResult::Incomplete(i)
+            }
+        }
+    );
+    ($i:expr, $f:expr) => (
+        recognize!($i, call!($f))
+    );
+);
+
+/// Replacement for error!
+#[doc(hidden)]
+macro_rules! error2 (
+  ($i:expr, $self_:ident, $code:expr, $submac:ident!( $($args:tt)* )) => (
+    {
+      let cl = || {
+        $submac!($i, $($args)*)
+      };
+
+      match cl() {
+        nom::IResult::Incomplete(x) => nom::IResult::Incomplete(x),
+        nom::IResult::Done(i, o)    => nom::IResult::Done(i, o),
+        nom::IResult::Error(e)      => {
+          return ($self_, nom::IResult::Error(nom::Err::NodePosition($code, $i, Box::new(e))))
+        }
+      }
+    }
+  );
+);
+
 impl Calculator {
     fn new() -> Calculator {
         Calculator {
@@ -244,18 +285,22 @@ impl Calculator {
         }
     }
 
-    fn calculate(input: &mut String) -> Calculator {
+    fn calculate(input: &[u8]) -> Calculator {
+        let mut s = str::from_utf8(input).unwrap().to_owned();
+        Calculator::run(&mut s)
+    }
+
+    fn run(input: &mut String) -> Calculator {
         let mut calc = Calculator::new();
         input.push('?');
-        match calc.input(input.as_bytes()) {
-            IResult::Done(_, val) => calc.result = {
-                match &val {
-                    &Expression::Error(a) => Err(a),
-                    _ => val,
-                }
-            },
+        calc.result = match calc.input(input.as_bytes()) {
+            (_, IResult::Done(_, val)) => match &val {
+                    &Expression::Error(a) => Err(From::from(a)),
+                    _ => Ok(val),
+                },
             _ => Err(CalculatorError::SyntaxError),
-        }
+        };
+        calc
     }
 
     /// A parenthetical expression
@@ -267,13 +312,13 @@ impl Calculator {
         // or a function name followed by parentheses and comma-separated arguments
           | chain!(
               func: map_opt!(alphanumeric, get_function)
-            ~ args: delimited!(char!('('), preceded!(opt!(multispace), separated_nonempty_list!(delimited!(opt!(multispace), char!(','), opt!(multispace)), self.expr)), preceded!(opt!(multispace), char!(')'))),
-              || simplify1(Expression::Call(func, args))
+            ~ args: delimited!(char!('('), preceded!(opt!(multispace), separated_nonempty_list!(delimited!(opt!(multispace), char!(','), opt!(multispace)), call_m!(self.expr))), preceded!(opt!(multispace), char!(')'))),
+              || self.simplify1(Expression::Call(func, args))
           )));
 
     /// Recognize integers and numbers with digits on the left side of decimal point (e.g. 57, 2.3)
     #[inline]
-    method!(recognize_number1<Calculator, &[u8]>, self, recognize!(
+    method!(recognize_number1<Calculator, &[u8]>, self, recognize2!(
             chain!(call!(Calculator::decimal)
                  ~ preceded!(char!('.'), opt!(call!(Calculator::decimal)))?
                  ~ preceded!(one_of!("eE"),
@@ -281,7 +326,7 @@ impl Calculator {
                  || ())));
     /// Recognize numbers with a decimal point followed by digits (e.g. .2, .7)
     #[inline]
-    method!(recognize_number2<Calculator, &[u8]>, self, recognize!(
+    method!(recognize_number2<Calculator, &[u8]>, self, recognize2!(
             chain!(char!('.')
                  ~ call!(Calculator::decimal)
                  ~ preceded!(one_of!("eE"),
@@ -335,10 +380,10 @@ impl Calculator {
 
     /// A numerical constant consists of only letters
     #[inline]
-    method!(pub num_const<Calculator, f64>, self, map_opt!(alpha, self.get_numerical_constant));
+    method!(pub num_const<Calculator, f64>, self, map_opt!(alpha, |x| self.get_numerical_constant(x)));
     /// A united constant may contains numbers and underscores
     #[inline]
-    method!(pub unit_const<Calculator, uval::UnitValue>, self, map_opt!(recognize!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), self.get_unit));
+    method!(pub unit_const<Calculator, uval::UnitValue>, self, map_opt!(recognize2!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), |x| self.get_unit(x)));
 
     /// The innermost level is either parentheticals, numbers, or constants
     method!(pub atom<Calculator, Expression>, self, alt!(call_m!(self.parens)
@@ -388,7 +433,7 @@ impl Calculator {
                  | preceded!(opt!(multispace), char!('/'))
                  | value!('*',
                           preceded!(multispace,
-                                    error!(nom::ErrorKind::NoneOf,
+                                    error2!(self, nom::ErrorKind::NoneOf,
                                            peek!(none_of!("+-")))))),
                    preceded!(opt!(multispace), call_m!(self.unary))));
 
@@ -421,51 +466,51 @@ impl Calculator {
 
     /// User input has a ? appended so that it does not try to match things after the input (nom yields an Incomplete)
     method!(pub input<Calculator, Expression>, self, chain!(opt!(multispace) ~ res: call_m!(self.expr) ~ opt!(multispace) ~ char!('?'), ||{res}));
-}
 
-/// Simplify 1 part of an expression
-fn simplify1(expr: Expression) -> Expression {
-    /// All values in an array are known
-    fn all_known(a: &Vec<Expression>) -> bool {
-        a.iter().all(Expression::is_known)
+    /// Simplify 1 part of an expression
+    fn simplify1(&self, expr: Expression) -> Expression {
+        /// All values in an array are known
+        fn all_known(a: &Vec<Expression>) -> bool {
+            a.iter().all(Expression::is_known)
+        }
+        /// Some value is an error, so we should return an error
+        fn any_error(a: &Vec<Expression>) -> bool {
+            a.iter().any(Expression::is_error)
+        }
+        /// Make it more readable by renaming types
+        use Expression as E;
+        use Expression::Value as V;
+        match expr {
+            E::Exp(box V(ref a), box V(ref b)) => make_value(a.pow(b)),
+            E::Exp(_, box e @ E::Error(_)) => e,
+            E::Exp(box e @ E::Error(_), _) => e,
+            E::Mul(box V(ref a), box V(ref b)) => make_value(a.mul(b)),
+            E::Mul(_, box e @ E::Error(_)) => e,
+            E::Mul(box e @ E::Error(_), _) => e,
+            E::Div(box V(ref a), box V(ref b)) => make_value(a.div(b)),
+            E::Div(_, box e @ E::Error(_)) => e,
+            E::Div(box e @ E::Error(_), _) => e,
+            E::Add(box V(ref a), box V(ref b)) => make_value(a.add(b)),
+            E::Add(_, box e @ E::Error(_)) => e,
+            E::Add(box e @ E::Error(_), _) => e,
+            E::Sub(box V(ref a), box V(ref b)) => make_value(a.sub(b)),
+            E::Sub(_, box e @ E::Error(_)) => e,
+            E::Sub(box e @ E::Error(_), _) => e,
+            E::Neg(box V(a)) => make_value(-a),
+            E::Neg(box E::Neg(box a)) => a,
+            E::Neg(box e @ E::Error(_)) => e,
+            /// Call a function by extracting the floating-point values of the arguments
+            E::Call(ref f, ref a) if all_known(a) => make_value(f(a.iter().map(Expression::extract_float).collect())),
+            /// Forward the first error
+            E::Call(_, ref a) if any_error(a) => match a.iter().find(|e| e.is_error()).expect("no error found") {
+                &E::Error(a) => E::Error(a),
+                _ => panic!("not actually an error")
+            },
+            expr => expr
+        }
     }
-    /// Some value is an error, so we should return an error
-    fn any_error(a: &Vec<Expression>) -> bool {
-        a.iter().any(Expression::is_error)
-    }
-    /// Make it more readable by renaming types
-    use Expression as E;
-    use Expression::Value as V;
-    match expr {
-        E::Exp(box V(ref a), box V(ref b)) => make_value(a.pow(b)),
-        E::Exp(_, box e @ E::Error(_)) => e,
-        E::Exp(box e @ E::Error(_), _) => e,
-        E::Mul(box V(ref a), box V(ref b)) => make_value(a.mul(b)),
-        E::Mul(_, box e @ E::Error(_)) => e,
-        E::Mul(box e @ E::Error(_), _) => e,
-        E::Div(box V(ref a), box V(ref b)) => make_value(a.div(b)),
-        E::Div(_, box e @ E::Error(_)) => e,
-        E::Div(box e @ E::Error(_), _) => e,
-        E::Add(box V(ref a), box V(ref b)) => make_value(a.add(b)),
-        E::Add(_, box e @ E::Error(_)) => e,
-        E::Add(box e @ E::Error(_), _) => e,
-        E::Sub(box V(ref a), box V(ref b)) => make_value(a.sub(b)),
-        E::Sub(_, box e @ E::Error(_)) => e,
-        E::Sub(box e @ E::Error(_), _) => e,
-        E::Neg(box V(a)) => make_value(-a),
-        E::Neg(box E::Neg(box a)) => a,
-        E::Neg(box e @ E::Error(_)) => e,
-        /// Call a function by extracting the floating-point values of the arguments
-        E::Call(ref f, ref a) if all_known(a) => make_value(f(a.iter().map(Expression::extract_float).collect())),
-        /// Forward the first error
-        E::Call(_, ref a) if any_error(a) => match a.iter().find(|e| e.is_error()).expect("no error found") {
-            &E::Error(a) => E::Error(a),
-            _ => panic!("not actually an error")
-        },
-        expr => expr
-    }
-}
 
+}
 // the following tests are self-explanatory.
 #[cfg(test)]
 mod tests {
@@ -475,15 +520,14 @@ mod tests {
     use rational::AsFloat;
     /// Macro used for testing an expression against a known value
     macro_rules! test_expr {
-        ( $x:expr, $v: expr) => (assert_eq!(Calculator::calculate($x.as_bytes()), Ok(IResult::Done(&b""[..], make_value($v)))));
+        ($x:expr, $v: expr) => (assert_eq!(Calculator::calculate($x.as_bytes()).result, Ok(make_value($v))));
     }
     /// Macro used for approximately equal
     macro_rules! test_approx {
         ( $x:expr, $v: expr) => ({
-            let res = Calculator::calculate($x.as_bytes());
+            let res = Calculator::calculate($x.as_bytes()).result;
             match &res {
-                &Ok(IResult::Done(_, Expression::Value(val))) => {
-                    assert_eq!(res, IResult::Done(&b""[..], Expression::Value(val)));
+                &Ok(Expression::Value(val)) => {
                     assert!((val.as_float() - $v).abs() < 1e-6)
                 },
                 _ => panic!("input not consumed: {:?}", res)
@@ -491,7 +535,7 @@ mod tests {
     }
     /// An expression should not parse correctly.
     macro_rules! fail_expr {
-        ( $x: expr ) => (match input(concat!($x, "?").as_bytes()) { IResult::Done(_, _) => panic!("should have failed"), _ => () })
+        ( $x: expr ) => (match Calculator::calculate($x.as_bytes()).result { Ok(_) => panic!("should have failed"), _ => () })
     }
     #[test]
     fn test_exponents() {
@@ -594,10 +638,15 @@ pub fn main() {
         if line.trim() == "quit" { break }
         // TODO: move to separate function
         // add a question mark to end the end of the input
-        line.push_str("?");
-        match input(line.as_bytes()) {
-            IResult::Done(_, val) => println!("=> {}", val),
-            _ => println!("syntax error"),
+        let calc = Calculator::run(&mut line);
+        match calc.result {
+            Ok(val) => {
+                for warn in calc.warnings {
+                    println!("{}", warn);
+                }
+                println!("=> {}", val)
+            },
+            Err(err) => println!("error: {:?}", err),
         }
     }
 }
