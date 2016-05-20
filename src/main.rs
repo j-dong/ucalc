@@ -293,18 +293,17 @@ impl Calculator {
     fn run(input: &mut String) -> Calculator {
         let mut calc = Calculator::new();
         input.push('?');
-        calc.result = match calc.input(input.as_bytes()) {
-            (_, IResult::Done(_, val)) => match &val {
-                    &Expression::Error(a) => Err(From::from(a)),
-                    _ => Ok(val),
+        match calc.input(input.as_bytes()) {
+            (ncalc, IResult::Done(_, val)) => match &val {
+                    &Expression::Error(a) => Calculator {result: Err(From::from(a)), warnings: ncalc.warnings},
+                    _ => Calculator {result: Ok(val), warnings: ncalc.warnings},
                 },
-            _ => Err(CalculatorError::SyntaxError),
-        };
-        calc
+            (ncalc, _) => ncalc,
+        }
     }
 
     /// A parenthetical expression
-    method!(pub parens<Calculator, Expression>, self, alt!(
+    method!(pub parens<Calculator, Expression>, mut self, alt!(
         // either an expression in parentheses
             delimited!(char!('(')
           , preceded!(opt!(multispace), call_m!(self.expr))
@@ -318,7 +317,7 @@ impl Calculator {
 
     /// Recognize integers and numbers with digits on the left side of decimal point (e.g. 57, 2.3)
     #[inline]
-    method!(recognize_number1<Calculator, &[u8]>, self, recognize2!(
+    method!(recognize_number1<Calculator, &[u8]>, mut self, recognize2!(
             chain!(call!(Calculator::decimal)
                  ~ preceded!(char!('.'), opt!(call!(Calculator::decimal)))?
                  ~ preceded!(one_of!("eE"),
@@ -326,7 +325,7 @@ impl Calculator {
                  || ())));
     /// Recognize numbers with a decimal point followed by digits (e.g. .2, .7)
     #[inline]
-    method!(recognize_number2<Calculator, &[u8]>, self, recognize2!(
+    method!(recognize_number2<Calculator, &[u8]>, mut self, recognize2!(
             chain!(char!('.')
                  ~ call!(Calculator::decimal)
                  ~ preceded!(one_of!("eE"),
@@ -351,7 +350,7 @@ impl Calculator {
     named!(decimal<()>, value!((), many1!(one_of!("0123456789_"))));
 
     /// A number is one of the two number forms above
-    method!(pub number<Calculator, f64>, self, map_res!(map_res!(
+    method!(pub number<Calculator, f64>, mut self, map_res!(map_res!(
                 alt!(call_m!(self.recognize_number1) => {Calculator::stringify_u8}
                    | call_m!(self.recognize_number2) => {Calculator::prepend_zero}),
                 // Remove underscores
@@ -380,20 +379,20 @@ impl Calculator {
 
     /// A numerical constant consists of only letters
     #[inline]
-    method!(pub num_const<Calculator, f64>, self, map_opt!(alpha, |x| self.get_numerical_constant(x)));
+    method!(pub num_const<Calculator, f64>, mut self, map_opt!(alpha, |x| self.get_numerical_constant(x)));
     /// A united constant may contains numbers and underscores
     #[inline]
-    method!(pub unit_const<Calculator, uval::UnitValue>, self, map_opt!(recognize2!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), |x| self.get_unit(x)));
+    method!(pub unit_const<Calculator, uval::UnitValue>, mut self, map_opt!(recognize2!(many1!(one_of!("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))), |x| self.get_unit(x)));
 
     /// The innermost level is either parentheticals, numbers, or constants
-    method!(pub atom<Calculator, Expression>, self, alt!(call_m!(self.parens)
+    method!(pub atom<Calculator, Expression>, mut self, alt!(call_m!(self.parens)
                                                       | call_m!(self.number) => {input_value}
                                                       | call_m!(self.num_const) => {make_value}
                                                       | call_m!(self.unit_const) => {Expression::Value}));
 
     /// Implied multiplication without spaces has the highest precedence
     // e.g. 1/2pi => 1/(2pi), but 1/2 pi => pi/2
-    method!(pub imul<Calculator, Expression>, self, chain!(
+    method!(pub imul<Calculator, Expression>, mut self, chain!(
            first: call_m!(self.atom)
          ~ others: many0!(call_m!(self.atom)), ||
         others.into_iter().fold(first,
@@ -402,7 +401,7 @@ impl Calculator {
     ));
 
     /// A unary value such as + and -.
-    method!(pub unary<Calculator, Expression>, self, alt!(call_m!(self.exp)
+    method!(pub unary<Calculator, Expression>, mut self, alt!(call_m!(self.exp)
                                  | chain!(op: chain!(
                                          o: alt!(char!('+') | char!('-'))
                                        ~ multispace?, || o)
@@ -415,7 +414,7 @@ impl Calculator {
     })));
 
     /// Exponentiation (right associative)
-    method!(pub exp<Calculator, Expression>, self, chain!(
+    method!(pub exp<Calculator, Expression>, mut self, chain!(
            lhs: call_m!(self.imul)
          ~ rhs: preceded!(preceded!(opt!(multispace), char!('^')),
                           preceded!(opt!(multispace), call_m!(self.unary)))?, ||
@@ -427,7 +426,7 @@ impl Calculator {
     ));
 
     /// A single factor-term with * or / (or whitespace, which is treated as multiplication)
-    method!(pub facterm<Calculator, (char, Expression)>, self,
+    method!(pub facterm<Calculator, (char, Expression)>, mut self,
             tuple!(alt!(
                    preceded!(opt!(multispace), char!('*'))
                  | preceded!(opt!(multispace), char!('/'))
@@ -438,7 +437,7 @@ impl Calculator {
                    preceded!(opt!(multispace), call_m!(self.unary))));
 
     /// A thing followed by things with operators
-    method!(pub fac<Calculator, Expression>, self,
+    method!(pub fac<Calculator, Expression>, mut self,
             chain!(first: call_m!(self.unary)
                  ~ others: many0!(call_m!(self.facterm)), ||
         others.into_iter().fold(first, |lhs, (op, rhs)| self.simplify1(
@@ -450,7 +449,7 @@ impl Calculator {
     ));
 
     /// An expression consists of one factor followed by more terms preceded by + or -.
-    method!(pub expr<Calculator, Expression>, self,
+    method!(pub expr<Calculator, Expression>, mut self,
             chain!(first: call_m!(self.fac)
                  ~ others: many0!(tuple!(
                            preceded!(opt!(multispace),
@@ -465,7 +464,7 @@ impl Calculator {
     ));
 
     /// User input has a ? appended so that it does not try to match things after the input (nom yields an Incomplete)
-    method!(pub input<Calculator, Expression>, self, chain!(opt!(multispace) ~ res: call_m!(self.expr) ~ opt!(multispace) ~ char!('?'), ||{res}));
+    method!(pub input<Calculator, Expression>, mut self, chain!(opt!(multispace) ~ res: call_m!(self.expr) ~ opt!(multispace) ~ char!('?'), ||{res}));
 
     /// Simplify 1 part of an expression
     fn simplify1(&self, expr: Expression) -> Expression {
@@ -642,7 +641,7 @@ pub fn main() {
         match calc.result {
             Ok(val) => {
                 for warn in calc.warnings {
-                    println!("{}", warn);
+                    println!("warning: {}", warn);
                 }
                 println!("=> {}", val)
             },
